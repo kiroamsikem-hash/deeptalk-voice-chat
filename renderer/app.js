@@ -34,6 +34,15 @@ const iceServers = {
 
 // Sayfa yüklendiğinde
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('🚀 DeepTalk başlatılıyor...');
+    console.log('electronAPI mevcut mu?', typeof window.electronAPI !== 'undefined');
+    
+    if (window.electronAPI) {
+        console.log('✅ Electron API hazır');
+    } else {
+        console.log('⚠️ Electron API bulunamadı, tarayıcı modunda çalışıyor');
+    }
+    
     initSocket();
     loadDevices();
     updateStatus('Bağlantı bekleniyor...');
@@ -395,87 +404,113 @@ async function toggleScreen() {
         try {
             console.log('Ekran paylaşımı başlatılıyor...');
             
-            // Electron API kullan
+            // Electron API kontrolü
             if (window.electronAPI && window.electronAPI.getDesktopSources) {
-                const sources = await window.electronAPI.getDesktopSources();
+                console.log('Electron API kullanılıyor...');
                 
-                if (sources.length === 0) {
-                    alert('Paylaşılacak ekran bulunamadı');
-                    return;
-                }
-                
-                // İlk ekranı seç (veya kullanıcıya seçtir)
-                const selectedSource = sources[0];
-                console.log('Seçilen kaynak:', selectedSource.name);
-                
-                const constraints = {
-                    audio: false,
-                    video: {
-                        mandatory: {
-                            chromeMediaSource: 'desktop',
-                            chromeMediaSourceId: selectedSource.id,
-                            minWidth: 1280,
-                            maxWidth: 1920,
-                            minHeight: 720,
-                            maxHeight: 1080,
-                            minFrameRate: 15,
-                            maxFrameRate: settings.screenFps
+                try {
+                    const sources = await window.electronAPI.getDesktopSources();
+                    console.log('Bulunan kaynaklar:', sources.length);
+                    
+                    if (sources.length === 0) {
+                        alert('Paylaşılacak ekran bulunamadı');
+                        return;
+                    }
+                    
+                    // İlk ekranı seç
+                    const selectedSource = sources[0];
+                    console.log('Seçilen kaynak:', selectedSource.name);
+                    
+                    const constraints = {
+                        audio: false,
+                        video: {
+                            mandatory: {
+                                chromeMediaSource: 'desktop',
+                                chromeMediaSourceId: selectedSource.id,
+                                minWidth: 1280,
+                                maxWidth: 1920,
+                                minHeight: 720,
+                                maxHeight: 1080,
+                                minFrameRate: 15,
+                                maxFrameRate: settings.screenFps
+                            }
                         }
-                    }
-                };
-                
-                screenStream = await navigator.mediaDevices.getUserMedia(constraints);
-                const screenTrack = screenStream.getVideoTracks()[0];
-                
-                console.log('Ekran track özellikleri:', screenTrack.getSettings());
-                
-                // Ekran paylaşımı durdurulduğunda
-                screenTrack.onended = () => {
-                    console.log('Ekran paylaşımı durduruldu');
-                    stopScreenStream();
-                };
-                
-                // Tüm peer'lara ekran track'i gönder
-                let tracksSent = 0;
-                peers.forEach((peer, userId) => {
-                    const sender = peer.getSenders().find(s => s.track?.kind === 'video');
-                    if (sender) {
-                        sender.replaceTrack(screenTrack)
-                            .then(() => {
-                                tracksSent++;
-                                console.log(`✅ Ekran track'i ${userId}'ye gönderildi`);
-                            })
-                            .catch(e => console.error(`❌ Track replace error for ${userId}:`, e));
-                    } else {
-                        peer.addTrack(screenTrack, screenStream);
-                        tracksSent++;
-                        console.log(`✅ Ekran track'i ${userId}'ye eklendi`);
-                    }
-                });
-                
-                console.log(`📺 Ekran ${tracksSent} peer'a gönderildi`);
-                
-                // Ekran önizleme göster
-                const localVideo = document.getElementById('local-video');
-                localVideo.srcObject = screenStream;
-                localVideo.style.display = 'block';
-                
-                isScreenSharing = true;
-                document.getElementById('screen').classList.add('active');
-                
-                if (isCameraOn) {
-                    document.getElementById('camera').classList.remove('active');
+                    };
+                    
+                    screenStream = await navigator.mediaDevices.getUserMedia(constraints);
+                    
+                } catch (apiError) {
+                    console.error('Electron API hatası:', apiError);
+                    throw apiError;
                 }
-                
-                updateStatus('Ekran paylaşılıyor');
                 
             } else {
-                alert('Ekran paylaşımı bu sürümde desteklenmiyor. Lütfen uygulamayı yeniden başlatın.');
+                console.log('Standart getDisplayMedia kullanılıyor...');
+                
+                // Standart getDisplayMedia API
+                const constraints = {
+                    video: {
+                        width: { ideal: 1920, max: 1920 },
+                        height: { ideal: 1080, max: 1080 },
+                        frameRate: { ideal: settings.screenFps, max: 60 }
+                    },
+                    audio: false
+                };
+                
+                screenStream = await navigator.mediaDevices.getDisplayMedia(constraints);
             }
             
+            const screenTrack = screenStream.getVideoTracks()[0];
+            console.log('✅ Ekran track oluşturuldu:', screenTrack.getSettings());
+            
+            // Ekran paylaşımı durdurulduğunda
+            screenTrack.onended = () => {
+                console.log('Ekran paylaşımı durduruldu');
+                stopScreenStream();
+            };
+            
+            // Tüm peer'lara ekran track'i gönder
+            let tracksSent = 0;
+            peers.forEach((peer, userId) => {
+                const sender = peer.getSenders().find(s => s.track?.kind === 'video');
+                if (sender) {
+                    sender.replaceTrack(screenTrack)
+                        .then(() => {
+                            tracksSent++;
+                            console.log(`✅ Ekran track'i ${userId}'ye gönderildi`);
+                        })
+                        .catch(e => console.error(`❌ Track replace error for ${userId}:`, e));
+                } else {
+                    peer.addTrack(screenTrack, screenStream);
+                    tracksSent++;
+                    console.log(`✅ Ekran track'i ${userId}'ye eklendi`);
+                }
+            });
+            
+            console.log(`📺 Ekran ${tracksSent} peer'a gönderildi`);
+            
+            // Ekran önizleme göster
+            const localVideo = document.getElementById('local-video');
+            localVideo.srcObject = screenStream;
+            localVideo.style.display = 'block';
+            
+            isScreenSharing = true;
+            document.getElementById('screen').classList.add('active');
+            
+            if (isCameraOn) {
+                document.getElementById('camera').classList.remove('active');
+            }
+            
+            updateStatus('Ekran paylaşılıyor');
+            
         } catch (error) {
-            console.error('Ekran paylaşımı hatası:', error);
-            alert('Ekran paylaşımı başlatılamadı: ' + error.message);
+            console.error('❌ Ekran paylaşımı hatası:', error);
+            
+            if (error.name === 'NotAllowedError') {
+                console.log('Kullanıcı ekran paylaşımını reddetti');
+            } else {
+                alert('Ekran paylaşımı başlatılamadı: ' + error.message);
+            }
         }
     } else {
         stopScreenStream();

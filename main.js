@@ -17,7 +17,8 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       enableRemoteModule: false,
-      preload: path.join(__dirname, 'renderer', 'preload.js')
+      preload: path.join(__dirname, 'renderer', 'preload.js'),
+      webSecurity: true
     },
     icon: path.join(__dirname, 'assets', 'icon.png'),
     show: false,
@@ -27,7 +28,8 @@ function createWindow() {
 
   // Ekran paylaşımı için izin ver
   mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
-    if (permission === 'media') {
+    const allowedPermissions = ['media', 'mediaKeySystem', 'geolocation', 'notifications', 'midi', 'midiSysex', 'pointerLock', 'fullscreen'];
+    if (allowedPermissions.includes(permission)) {
       callback(true);
     } else {
       callback(false);

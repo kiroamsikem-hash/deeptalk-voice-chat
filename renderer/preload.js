@@ -15,11 +15,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onAudioSettings: (callback) => ipcRenderer.on('audio-settings', callback),
   
   // Ekran paylaşımı için
-  getDesktopSources: () => desktopCapturer.getSources({ 
-    types: ['window', 'screen'],
-    thumbnailSize: { width: 150, height: 150 }
-  }),
+  getDesktopSources: async () => {
+    try {
+      const sources = await desktopCapturer.getSources({ 
+        types: ['window', 'screen'],
+        thumbnailSize: { width: 150, height: 150 }
+      });
+      return sources;
+    } catch (error) {
+      console.error('desktopCapturer error:', error);
+      return [];
+    }
+  },
   
   // Olay dinleyicilerini kaldır
   removeAllListeners: (channel) => ipcRenderer.removeAllListeners(channel)
 });
+
+console.log('✅ Preload.js yüklendi, electronAPI hazır');
