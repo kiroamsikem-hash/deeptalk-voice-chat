@@ -8,6 +8,7 @@ class VoiceChatApp {
         this.isSpeakerMuted = false;
         this.currentRoom = null;
         this.currentUser = null;
+        this.currentInviteCode = null;
         this.audioContext = null;
         this.analyser = null;
         this.micLevel = 0;
@@ -23,12 +24,36 @@ class VoiceChatApp {
 
     setupEventListeners() {
         // Giriş ekranı
-        document.getElementById('join-btn').addEventListener('click', () => this.joinRoom());
+        document.getElementById('join-btn').addEventListener('click', () => this.joinRoomWithCode());
+        document.getElementById('create-room-btn').addEventListener('click', () => this.showCreateRoomScreen());
+        
+        // Oda oluşturma ekranı
+        document.getElementById('create-room-confirm-btn').addEventListener('click', () => this.createRoom());
+        document.getElementById('back-to-join-btn').addEventListener('click', () => this.showScreen('login-screen'));
+        
+        // Davet kodu ekranı
+        document.getElementById('copy-code-btn').addEventListener('click', () => this.copyInviteCode());
+        document.getElementById('enter-created-room-btn').addEventListener('click', () => this.enterCreatedRoom());
+        document.getElementById('back-to-main-btn').addEventListener('click', () => this.showScreen('login-screen'));
+        
+        // Ana konuşma ekranı
+        document.getElementById('copy-current-code-btn').addEventListener('click', () => this.copyCurrentInviteCode());
+
+        // Enter tuşu ile form gönderme
         document.getElementById('username').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') this.joinRoom();
+            if (e.key === 'Enter') this.focusNextInput();
         });
-        document.getElementById('room-id').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') this.joinRoom();
+        document.getElementById('invite-code').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') this.joinRoomWithCode();
+        });
+        document.getElementById('room-password').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') this.joinRoomWithCode();
+        });
+
+        // Davet kodu input'u için otomatik büyük harf
+        document.getElementById('invite-code').addEventListener('input', (e) => {
+            e.target.value = e.target.value.toUpperCase();
+            this.checkInviteCodeRequirements(e.target.value);
         });
 
         // Ses kontrolleri
@@ -60,7 +85,6 @@ class VoiceChatApp {
 
     setupElectronListeners() {
         if (window.electronAPI) {
-            // Menü olayları
             window.electronAPI.onNewRoom(() => {
                 if (this.currentRoom) {
                     this.leaveRoom();
@@ -94,21 +118,44 @@ class VoiceChatApp {
         }
     }
 
-    async joinRoom() {
-        const username = document.getElementById('username').value.trim();
-        const roomId = document.getElementById('room-id').value.trim();
-        const serverUrl = 'https://deeptalk.qzz.io'; // Sabit sunucu adresi
+    generateInviteCode() {
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+        let result = '';
+        for (let i = 0; i < 6; i++) {
+            result += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        return result;
+    }
 
-        if (!username || !roomId) {
-            this.updateStatus('Lütfen kullanıcı adı ve oda adı girin', 'error');
+    showCreateRoomScreen() {
+        this.showScreen('create-room-screen');
+        document.getElementById('room-name').focus();
+    }
+
+    async createRoom() {
+        const roomName = document.getElementById('room-name').value.trim();
+        const roomPassword = document.getElementById('room-password-create').value.trim();
+        const maxUsers = parseInt(document.getElementById('max-users').value);
+        const username = document.getElementById('username').value.trim();
+
+        if (!roomName) {
+            this.updateStatus('Lütfen oda adını girin', 'error');
             return;
         }
 
+        if (!username) {
+            this.updateStatus('Lütfen kullanıcı adınızı girin', 'error');
+            document.getElementById('username').focus();
+            return;
+        }
+
+        const inviteCode = this.generateInviteCode();
+        
         try {
-            this.updateConnectionStatus('connecting', 'deeptalk.qzz.io\'ya bağlanıyor...');
+            this.updateConnectionStatus('connecting', 'Oda oluşturuluyor...');
             
-            // Socket bağlantısı - HTTPS/WSS protokolü kullan
-            this.socket = io(serverUrl, {
+            // Socket bağlantısı
+            this.socket = io('https://deeptalk.qzz.io', {
                 transports: ['websocket', 'polling'],
                 upgrade: true,
                 rememberUpgrade: true,
@@ -119,49 +166,179 @@ class VoiceChatApp {
             
             this.socket.on('connect', () => {
                 this.isConnected = true;
-                this.updateConnectionStatus('online', 'deeptalk.qzz.io\'ya bağlandı');
-                this.currentUser = username;
-                this.currentRoom = roomId;
+                this.updateConnectionStatus('online', 'Bağlandı');
                 
-                // Odaya katıl
-                this.socket.emit('join-room', { roomId, userName: username });
-                
-                // Mikrofon başlat
-                this.startAudio();
-                
-                // Ekranı değiştir
-                this.showScreen('voice-screen');
-                this.updateRoomInfo();
+                // Oda oluştur
+                this.socket.emit('create-room', {
+                    inviteCode: inviteCode,
+                    roomName: roomName,
+                    password: roomPassword,
+                    maxUsers: maxUsers,
+                    creator: username
+                });
             });
 
-            this.socket.on('disconnect', (reason) => {
-                this.isConnected = false;
-                this.updateConnectionStatus('offline', 'Bağlantı kesildi: ' + reason);
-                console.log('Bağlantı kesildi:', reason);
+            this.socket.on('room-created', (data) => {
+                this.currentInviteCode = inviteCode;
+                this.showInviteCodeScreen(inviteCode, roomName, roomPassword, maxUsers);
             });
 
-            this.socket.on('connect_error', (error) => {
-                this.updateConnectionStatus('offline', 'Bağlantı hatası');
-                this.updateStatus('deeptalk.qzz.io sunucusuna bağlanılamadı. İnternet bağlantınızı kontrol edin.', 'error');
-                console.error('Bağlantı hatası:', error);
+            this.socket.on('room-creation-failed', (data) => {
+                this.updateStatus('Oda oluşturulamadı: ' + data.message, 'error');
+                this.updateConnectionStatus('offline', 'Hata');
             });
 
-            this.socket.on('reconnect', (attemptNumber) => {
-                this.updateConnectionStatus('online', 'Yeniden bağlandı');
-                console.log('Yeniden bağlandı, deneme:', attemptNumber);
-            });
-
-            this.socket.on('reconnect_attempt', (attemptNumber) => {
-                this.updateConnectionStatus('connecting', `Yeniden bağlanıyor... (${attemptNumber})`);
-            });
-
-            // WebRTC olayları
             this.setupWebRTCListeners();
 
         } catch (error) {
             this.updateStatus('Bağlantı hatası: ' + error.message, 'error');
             this.updateConnectionStatus('offline', 'Bağlantı Hatası');
         }
+    }
+
+    showInviteCodeScreen(inviteCode, roomName, password, maxUsers) {
+        document.getElementById('generated-invite-code').textContent = inviteCode;
+        document.getElementById('created-room-name').textContent = roomName;
+        document.getElementById('password-protected').textContent = password ? 'Evet' : 'Hayır';
+        document.getElementById('max-users-display').textContent = maxUsers + ' Kişi';
+        
+        this.showScreen('invite-code-screen');
+    }
+
+    copyInviteCode() {
+        const inviteCode = document.getElementById('generated-invite-code').textContent;
+        navigator.clipboard.writeText(inviteCode).then(() => {
+            const btn = document.getElementById('copy-code-btn');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<span class="btn-icon">✅</span>Kopyalandı!';
+            setTimeout(() => {
+                btn.innerHTML = originalText;
+            }, 2000);
+        });
+    }
+
+    copyCurrentInviteCode() {
+        if (this.currentInviteCode) {
+            navigator.clipboard.writeText(this.currentInviteCode).then(() => {
+                const btn = document.getElementById('copy-current-code-btn');
+                btn.textContent = '✅';
+                setTimeout(() => {
+                    btn.textContent = '📋';
+                }, 2000);
+            });
+        }
+    }
+
+    enterCreatedRoom() {
+        const username = document.getElementById('username').value.trim();
+        this.currentUser = username;
+        this.joinRoomDirectly(this.currentInviteCode);
+    }
+
+    checkInviteCodeRequirements(code) {
+        // Davet kodu girildiğinde şifre alanını göster/gizle
+        const passwordGroup = document.getElementById('password-group');
+        if (code.length >= 4) {
+            // Sunucudan oda bilgilerini al
+            this.checkRoomRequirements(code);
+        } else {
+            passwordGroup.style.display = 'none';
+        }
+    }
+
+    checkRoomRequirements(inviteCode) {
+        // Geçici olarak şifre alanını göster
+        // Gerçek uygulamada sunucudan oda bilgilerini alacağız
+        const passwordGroup = document.getElementById('password-group');
+        passwordGroup.style.display = 'block';
+    }
+
+    async joinRoomWithCode() {
+        const username = document.getElementById('username').value.trim();
+        const inviteCode = document.getElementById('invite-code').value.trim();
+        const roomPassword = document.getElementById('room-password').value.trim();
+
+        if (!username || !inviteCode) {
+            this.updateStatus('Lütfen kullanıcı adı ve davet kodu girin', 'error');
+            return;
+        }
+
+        if (inviteCode.length < 4) {
+            this.updateStatus('Davet kodu en az 4 karakter olmalıdır', 'error');
+            return;
+        }
+
+        this.joinRoomDirectly(inviteCode, roomPassword);
+    }
+
+    async joinRoomDirectly(inviteCode, password = '') {
+        const username = document.getElementById('username').value.trim();
+        
+        try {
+            this.updateConnectionStatus('connecting', 'Odaya bağlanıyor...');
+            
+            if (!this.socket || !this.isConnected) {
+                // Socket bağlantısı
+                this.socket = io('https://deeptalk.qzz.io', {
+                    transports: ['websocket', 'polling'],
+                    upgrade: true,
+                    rememberUpgrade: true,
+                    timeout: 15000,
+                    forceNew: true,
+                    autoConnect: true
+                });
+                
+                this.socket.on('connect', () => {
+                    this.isConnected = true;
+                    this.updateConnectionStatus('online', 'Bağlandı');
+                    this.attemptJoinRoom(inviteCode, username, password);
+                });
+            } else {
+                this.attemptJoinRoom(inviteCode, username, password);
+            }
+
+            this.setupWebRTCListeners();
+
+        } catch (error) {
+            this.updateStatus('Bağlantı hatası: ' + error.message, 'error');
+            this.updateConnectionStatus('offline', 'Bağlantı Hatası');
+        }
+    }
+
+    attemptJoinRoom(inviteCode, username, password) {
+        this.socket.emit('join-room-by-code', {
+            inviteCode: inviteCode,
+            userName: username,
+            password: password
+        });
+
+        this.socket.on('room-joined', (data) => {
+            this.currentUser = username;
+            this.currentRoom = data.roomName;
+            this.currentInviteCode = inviteCode;
+            
+            // Mikrofon başlat
+            this.startAudio();
+            
+            // Ekranı değiştir
+            this.showScreen('voice-screen');
+            this.updateRoomInfo();
+        });
+
+        this.socket.on('room-join-failed', (data) => {
+            this.updateStatus('Odaya katılım başarısız: ' + data.message, 'error');
+            this.updateConnectionStatus('offline', 'Hata');
+        });
+
+        this.socket.on('disconnect', (reason) => {
+            this.isConnected = false;
+            this.updateConnectionStatus('offline', 'Bağlantı kesildi: ' + reason);
+        });
+
+        this.socket.on('connect_error', (error) => {
+            this.updateConnectionStatus('offline', 'Bağlantı hatası');
+            this.updateStatus('Sunucuya bağlanılamadı. İnternet bağlantınızı kontrol edin.', 'error');
+        });
     }
 
     setupWebRTCListeners() {
@@ -217,7 +394,6 @@ class VoiceChatApp {
         } catch (error) {
             this.updateStatus('Mikrofon başlatılamadı: ' + error.message, 'error');
             
-            // Mikrofon izni yoksa kullanıcıyı bilgilendir
             if (error.name === 'NotAllowedError') {
                 if (window.electronAPI) {
                     window.electronAPI.showErrorDialog(
@@ -266,20 +442,17 @@ class VoiceChatApp {
         const peerConnection = new RTCPeerConnection(configuration);
         this.peers.set(userId, peerConnection);
 
-        // Yerel stream ekle
         if (this.localStream) {
             this.localStream.getTracks().forEach(track => {
                 peerConnection.addTrack(track, this.localStream);
             });
         }
 
-        // Uzak stream al
         peerConnection.ontrack = (event) => {
             const remoteStream = event.streams[0];
             this.playRemoteAudio(userId, remoteStream);
         };
 
-        // ICE candidate
         peerConnection.onicecandidate = (event) => {
             if (event.candidate) {
                 this.socket.emit('ice-candidate', {
@@ -289,25 +462,17 @@ class VoiceChatApp {
             }
         };
 
-        // Bağlantı durumu
         peerConnection.onconnectionstatechange = () => {
             const state = peerConnection.connectionState;
-            console.log(`Peer ${userId} bağlantı durumu: ${state}`);
             this.updateParticipantStatus(userId, state);
             
             if (state === 'failed' || state === 'disconnected') {
-                // Bağlantı başarısız olursa yeniden dene
                 setTimeout(() => {
                     if (peerConnection.connectionState === 'failed') {
                         this.createPeerConnection(userId, isInitiator);
                     }
                 }, 3000);
             }
-        };
-
-        // ICE bağlantı durumu
-        peerConnection.oniceconnectionstatechange = () => {
-            console.log(`Peer ${userId} ICE durumu: ${peerConnection.iceConnectionState}`);
         };
 
         if (isInitiator) {
@@ -394,7 +559,6 @@ class VoiceChatApp {
     toggleSpeaker() {
         this.isSpeakerMuted = !this.isSpeakerMuted;
         
-        // Tüm uzak ses elementlerini sustur/aç
         document.querySelectorAll('audio[id^="audio-"]').forEach(audio => {
             audio.muted = this.isSpeakerMuted;
         });
@@ -428,29 +592,26 @@ class VoiceChatApp {
             this.socket.disconnect();
         }
 
-        // Tüm peer bağlantılarını kapat
         this.peers.forEach(peer => peer.close());
         this.peers.clear();
 
-        // Yerel stream'i durdur
         if (this.localStream) {
             this.localStream.getTracks().forEach(track => track.stop());
             this.localStream = null;
         }
 
-        // Audio context'i kapat
         if (this.audioContext) {
             this.audioContext.close();
             this.audioContext = null;
         }
 
-        // Ses elementlerini temizle
         document.querySelectorAll('audio[id^="audio-"]').forEach(audio => {
             audio.remove();
         });
 
         this.currentRoom = null;
         this.currentUser = null;
+        this.currentInviteCode = null;
         this.isConnected = false;
 
         this.showScreen('login-screen');
@@ -530,8 +691,9 @@ class VoiceChatApp {
     }
 
     updateRoomInfo() {
-        document.getElementById('current-room').textContent = `Oda: ${this.currentRoom}`;
         document.getElementById('current-user').textContent = `Kullanıcı: ${this.currentUser}`;
+        document.getElementById('current-room-name').textContent = this.currentRoom || '-';
+        document.getElementById('current-invite-code').textContent = this.currentInviteCode || '-';
     }
 
     updateStatus(message, type = 'info') {
@@ -548,11 +710,13 @@ class VoiceChatApp {
         statusText.textContent = text;
     }
 
+    focusNextInput() {
+        document.getElementById('invite-code').focus();
+    }
+
     async showAudioSettings() {
         const modal = document.getElementById('audio-settings-modal');
         modal.classList.add('active');
-        
-        // Cihazları listele
         await this.loadAudioDevices();
     }
 
@@ -588,14 +752,12 @@ class VoiceChatApp {
     }
 
     async saveAudioSettings() {
-        // Ses ayarlarını kaydet
         const micId = document.getElementById('mic-select').value;
         const noiseSuppression = document.getElementById('noise-suppression').checked;
         const echoCancellation = document.getElementById('echo-cancellation').checked;
         
         if (micId && this.localStream) {
             try {
-                // Yeni mikrofon stream'i al
                 const newStream = await navigator.mediaDevices.getUserMedia({
                     audio: {
                         deviceId: micId,
@@ -605,11 +767,9 @@ class VoiceChatApp {
                     }
                 });
                 
-                // Eski stream'i değiştir
                 const audioTrack = newStream.getAudioTracks()[0];
                 const oldTrack = this.localStream.getAudioTracks()[0];
                 
-                // Peer bağlantılarında track'i güncelle
                 this.peers.forEach(peer => {
                     const sender = peer.getSenders().find(s => s.track === oldTrack);
                     if (sender) {
@@ -617,10 +777,7 @@ class VoiceChatApp {
                     }
                 });
                 
-                // Eski track'i durdur
                 oldTrack.stop();
-                
-                // Stream'i güncelle
                 this.localStream.removeTrack(oldTrack);
                 this.localStream.addTrack(audioTrack);
                 

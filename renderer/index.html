@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sesli Konuşma Uygulaması</title>
+    <title>DeepTalk - Güvenli Sesli Sohbet</title>
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
@@ -12,8 +12,8 @@
         <!-- Başlık Çubuğu -->
         <div class="title-bar">
             <div class="title-info">
-                <div class="app-icon">🎙️</div>
-                <h1>Sesli Konuşma</h1>
+                <div class="app-icon">🔐</div>
+                <h1>DeepTalk</h1>
             </div>
             <div class="connection-status" id="connection-status">
                 <span class="status-dot offline"></span>
@@ -28,8 +28,8 @@
                 <div class="login-container">
                     <div class="welcome-section">
                         <div class="welcome-icon">🎧</div>
-                        <h2>Hoş Geldiniz</h2>
-                        <p>Arkadaşlarınızla yüksek kaliteli sesli sohbet edin</p>
+                        <h2>DeepTalk</h2>
+                        <p>Güvenli sesli sohbet platformu</p>
                     </div>
                     
                     <div class="login-form">
@@ -39,19 +39,116 @@
                         </div>
                         
                         <div class="input-group">
-                            <label for="room-id">Oda Adı</label>
-                            <input type="text" id="room-id" placeholder="Oda adı (örn: arkadaşlar)" maxlength="30">
+                            <label for="invite-code">Davet Kodu</label>
+                            <input type="text" id="invite-code" placeholder="Davet kodunu girin" maxlength="8" style="text-transform: uppercase;">
+                        </div>
+                        
+                        <div class="input-group" id="password-group" style="display: none;">
+                            <label for="room-password">Oda Şifresi</label>
+                            <input type="password" id="room-password" placeholder="Oda şifresi (varsa)">
                         </div>
                         
                         <button id="join-btn" class="primary-btn">
-                            <span class="btn-icon">🚀</span>
+                            <span class="btn-icon">🔐</span>
                             Odaya Katıl
                         </button>
                         
-        <div class="tips">
-                            <p><strong>İpucu:</strong> Aynı oda adını kullanan herkes birbirinizi duyabilir</p>
-                            <p><strong>Sunucu:</strong> deeptalk.qzz.io üzerinden bağlanıyorsunuz</p>
+                        <div class="action-buttons">
+                            <button id="create-room-btn" class="secondary-btn">
+                                <span class="btn-icon">➕</span>
+                                Yeni Oda Oluştur
+                            </button>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Oda Oluşturma Ekranı -->
+            <div id="create-room-screen" class="screen">
+                <div class="login-container">
+                    <div class="welcome-section">
+                        <div class="welcome-icon">🏠</div>
+                        <h2>Yeni Oda Oluştur</h2>
+                        <p>Arkadaşlarınız için güvenli bir sohbet odası oluşturun</p>
+                    </div>
+                    
+                    <div class="login-form">
+                        <div class="input-group">
+                            <label for="room-name">Oda Adı</label>
+                            <input type="text" id="room-name" placeholder="Oda adını girin" maxlength="30">
+                        </div>
+                        
+                        <div class="input-group">
+                            <label for="room-password-create">Oda Şifresi (Opsiyonel)</label>
+                            <input type="password" id="room-password-create" placeholder="Şifre belirleyin (boş bırakabilirsiniz)">
+                        </div>
+                        
+                        <div class="input-group">
+                            <label for="max-users">Maksimum Kullanıcı</label>
+                            <select id="max-users">
+                                <option value="5">5 Kişi</option>
+                                <option value="10" selected>10 Kişi</option>
+                                <option value="20">20 Kişi</option>
+                                <option value="50">50 Kişi</option>
+                            </select>
+                        </div>
+                        
+                        <button id="create-room-confirm-btn" class="primary-btn">
+                            <span class="btn-icon">🚀</span>
+                            Oda Oluştur
+                        </button>
+                        
+                        <button id="back-to-join-btn" class="secondary-btn">
+                            <span class="btn-icon">⬅️</span>
+                            Geri Dön
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Davet Kodu Gösterme Ekranı -->
+            <div id="invite-code-screen" class="screen">
+                <div class="login-container">
+                    <div class="welcome-section">
+                        <div class="welcome-icon">🎉</div>
+                        <h2>Oda Oluşturuldu!</h2>
+                        <p>Arkadaşlarınızla bu davet kodunu paylaşın</p>
+                    </div>
+                    
+                    <div class="invite-code-display">
+                        <div class="code-container">
+                            <div class="code-label">Davet Kodu</div>
+                            <div class="code-value" id="generated-invite-code">ABC123</div>
+                            <button id="copy-code-btn" class="copy-btn">
+                                <span class="btn-icon">📋</span>
+                                Kopyala
+                            </button>
+                        </div>
+                        
+                        <div class="room-details">
+                            <div class="detail-item">
+                                <span class="detail-label">Oda Adı:</span>
+                                <span class="detail-value" id="created-room-name">-</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">Şifre Korumalı:</span>
+                                <span class="detail-value" id="password-protected">Hayır</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">Maksimum Kullanıcı:</span>
+                                <span class="detail-value" id="max-users-display">10</span>
+                            </div>
+                        </div>
+                        
+                        <button id="enter-created-room-btn" class="primary-btn">
+                            <span class="btn-icon">🚪</span>
+                            Odaya Gir
+                        </button>
+                        
+                        <button id="back-to-main-btn" class="secondary-btn">
+                            <span class="btn-icon">🏠</span>
+                            Ana Sayfaya Dön
+                        </button>
                     </div>
                 </div>
             </div>
@@ -65,6 +162,17 @@
                             <h3>Katılımcılar</h3>
                             <span id="participant-count" class="count-badge">0</span>
                         </div>
+                        <div class="room-info-panel">
+                            <div class="room-detail">
+                                <span class="room-label">Oda:</span>
+                                <span id="current-room-name">-</span>
+                            </div>
+                            <div class="room-detail">
+                                <span class="room-label">Davet Kodu:</span>
+                                <span id="current-invite-code" class="invite-code-display">-</span>
+                                <button id="copy-current-code-btn" class="mini-copy-btn" title="Kopyala">📋</button>
+                            </div>
+                        </div>
                         <div id="participants-list" class="participants-list"></div>
                     </div>
 
@@ -72,8 +180,8 @@
                     <div class="right-panel">
                         <div class="room-header">
                             <div class="room-info">
-                                <h2 id="current-room">Oda: </h2>
-                                <p id="current-user">Kullanıcı: </p>
+                                <h2 id="current-user">Kullanıcı: </h2>
+                                <p class="connection-info">Bağlı ve aktif</p>
                             </div>
                             <button id="leave-btn" class="leave-btn">
                                 <span>🚪</span>
