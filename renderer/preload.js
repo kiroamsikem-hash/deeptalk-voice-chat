@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, desktopCapturer } = require('electron');
 
 // Güvenli API'leri renderer sürecine açığa çıkar
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -13,6 +13,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onNewRoom: (callback) => ipcRenderer.on('new-room', callback),
   onToggleMute: (callback) => ipcRenderer.on('toggle-mute', callback),
   onAudioSettings: (callback) => ipcRenderer.on('audio-settings', callback),
+  
+  // Ekran paylaşımı için
+  getDesktopSources: () => desktopCapturer.getSources({ 
+    types: ['window', 'screen'],
+    thumbnailSize: { width: 150, height: 150 }
+  }),
   
   // Olay dinleyicilerini kaldır
   removeAllListeners: (channel) => ipcRenderer.removeAllListeners(channel)

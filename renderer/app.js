@@ -79,9 +79,11 @@ function initSocket() {
 
     // Odaya katılım başarılı
     socket.on('room-joined', (data) => {
-        console.log('Odaya katıldı:', data);
+        console.log('✅ Odaya katıldı:', data);
         currentCode = data.inviteCode;
         currentRoom = data.roomName;
+        currentUser = currentUser || 'Kullanıcı'; // Emin ol ki currentUser set edilmiş
+        
         document.getElementById('room-name').textContent = data.roomName;
         document.getElementById('room-code').textContent = data.inviteCode;
         document.getElementById('messages').innerHTML = '';
@@ -89,6 +91,8 @@ function initSocket() {
         startLocalStream();
         updateStatus(`${data.userCount}/${data.maxUsers} kullanıcı`);
         addSystemMessage(`${data.roomName} odasına hoş geldiniz!`);
+        
+        console.log('📍 Oda bilgileri:', { currentCode, currentRoom, currentUser });
     });
 
     // Odaya katılım başarısız
@@ -389,80 +393,89 @@ async function toggleCamera() {
 async function toggleScreen() {
     if (!isScreenSharing) {
         try {
-            // Electron'da ekran paylaşımı için
-            if (!navigator.mediaDevices.getDisplayMedia) {
-                alert('Ekran paylaşımı bu tarayıcıda desteklenmiyor. Lütfen uygulamayı güncelleyin.');
-                return;
-            }
-            
-            const constraints = {
-                video: {
-                    cursor: 'always',
-                    displaySurface: 'monitor',
-                    logicalSurface: true,
-                    width: { ideal: 1920, max: 1920 },
-                    height: { ideal: 1080, max: 1080 },
-                    frameRate: { ideal: settings.screenFps, max: 60 }
-                },
-                audio: false
-            };
-            
             console.log('Ekran paylaşımı başlatılıyor...');
-            screenStream = await navigator.mediaDevices.getDisplayMedia(constraints);
-            const screenTrack = screenStream.getVideoTracks()[0];
             
-            console.log('Ekran track özellikleri:', screenTrack.getSettings());
-            
-            // Ekran paylaşımı durdurulduğunda
-            screenTrack.onended = () => {
-                console.log('Ekran paylaşımı kullanıcı tarafından durduruldu');
-                stopScreenStream();
-            };
-            
-            // Tüm peer'lara ekran track'i gönder
-            let tracksSent = 0;
-            peers.forEach((peer, userId) => {
-                const sender = peer.getSenders().find(s => s.track?.kind === 'video');
-                if (sender) {
-                    sender.replaceTrack(screenTrack)
-                        .then(() => {
-                            tracksSent++;
-                            console.log(`Ekran track'i ${userId}'ye gönderildi`);
-                        })
-                        .catch(e => console.error(`Track replace error for ${userId}:`, e));
-                } else {
-                    peer.addTrack(screenTrack, screenStream);
-                    tracksSent++;
-                    console.log(`Ekran track'i ${userId}'ye eklendi`);
+            // Electron API kullan
+            if (window.electronAPI && window.electronAPI.getDesktopSources) {
+                const sources = await window.electronAPI.getDesktopSources();
+                
+                if (sources.length === 0) {
+                    alert('Paylaşılacak ekran bulunamadı');
+                    return;
                 }
-            });
-            
-            console.log(`Ekran ${tracksSent} peer'a gönderildi`);
-            
-            // Ekran önizleme göster
-            const localVideo = document.getElementById('local-video');
-            localVideo.srcObject = screenStream;
-            localVideo.style.display = 'block';
-            
-            isScreenSharing = true;
-            document.getElementById('screen').classList.add('active');
-            
-            // Kamera kapatıldı olarak işaretle (ama stream'i tutuyoruz)
-            if (isCameraOn) {
-                document.getElementById('camera').classList.remove('active');
+                
+                // İlk ekranı seç (veya kullanıcıya seçtir)
+                const selectedSource = sources[0];
+                console.log('Seçilen kaynak:', selectedSource.name);
+                
+                const constraints = {
+                    audio: false,
+                    video: {
+                        mandatory: {
+                            chromeMediaSource: 'desktop',
+                            chromeMediaSourceId: selectedSource.id,
+                            minWidth: 1280,
+                            maxWidth: 1920,
+                            minHeight: 720,
+                            maxHeight: 1080,
+                            minFrameRate: 15,
+                            maxFrameRate: settings.screenFps
+                        }
+                    }
+                };
+                
+                screenStream = await navigator.mediaDevices.getUserMedia(constraints);
+                const screenTrack = screenStream.getVideoTracks()[0];
+                
+                console.log('Ekran track özellikleri:', screenTrack.getSettings());
+                
+                // Ekran paylaşımı durdurulduğunda
+                screenTrack.onended = () => {
+                    console.log('Ekran paylaşımı durduruldu');
+                    stopScreenStream();
+                };
+                
+                // Tüm peer'lara ekran track'i gönder
+                let tracksSent = 0;
+                peers.forEach((peer, userId) => {
+                    const sender = peer.getSenders().find(s => s.track?.kind === 'video');
+                    if (sender) {
+                        sender.replaceTrack(screenTrack)
+                            .then(() => {
+                                tracksSent++;
+                                console.log(`✅ Ekran track'i ${userId}'ye gönderildi`);
+                            })
+                            .catch(e => console.error(`❌ Track replace error for ${userId}:`, e));
+                    } else {
+                        peer.addTrack(screenTrack, screenStream);
+                        tracksSent++;
+                        console.log(`✅ Ekran track'i ${userId}'ye eklendi`);
+                    }
+                });
+                
+                console.log(`📺 Ekran ${tracksSent} peer'a gönderildi`);
+                
+                // Ekran önizleme göster
+                const localVideo = document.getElementById('local-video');
+                localVideo.srcObject = screenStream;
+                localVideo.style.display = 'block';
+                
+                isScreenSharing = true;
+                document.getElementById('screen').classList.add('active');
+                
+                if (isCameraOn) {
+                    document.getElementById('camera').classList.remove('active');
+                }
+                
+                updateStatus('Ekran paylaşılıyor');
+                
+            } else {
+                alert('Ekran paylaşımı bu sürümde desteklenmiyor. Lütfen uygulamayı yeniden başlatın.');
             }
-            
-            updateStatus('Ekran paylaşılıyor');
             
         } catch (error) {
             console.error('Ekran paylaşımı hatası:', error);
-            if (error.name === 'NotAllowedError') {
-                console.log('Kullanıcı ekran paylaşımını reddetti');
-            } else if (error.name === 'NotSupportedError') {
-                alert('Ekran paylaşımı desteklenmiyor. Electron sürümünüz eski olabilir.');
-            } else {
-                alert('Ekran paylaşımı başlatılamadı: ' + error.message);
-            }
+            alert('Ekran paylaşımı başlatılamadı: ' + error.message);
         }
     } else {
         stopScreenStream();
@@ -544,57 +557,25 @@ async function startLocalStream() {
                 echoCancellation: true,
                 noiseSuppression: true,
                 autoGainControl: true,
-                sampleRate: 48000,  // Yüksek kalite ses
-                sampleSize: 16,
-                channelCount: 1,
-                latency: 0,
-                volume: 1.0
+                sampleRate: 48000,
+                channelCount: 1
             },
             video: false
         };
         
         localStream = await navigator.mediaDevices.getUserMedia(constraints);
         
-        // Ses seviyesi kontrolü için AudioContext kullan
-        const audioContext = new AudioContext();
-        const source = audioContext.createMediaStreamSource(localStream);
-        const gainNode = audioContext.createGain();
-        const compressor = audioContext.createDynamicsCompressor();
-        
-        // Compressor ayarları (ses kalitesini artırır)
-        compressor.threshold.value = -50;  // dB - bu değerin altındaki sesler bastırılır
-        compressor.knee.value = 40;
-        compressor.ratio.value = 12;
-        compressor.attack.value = 0.003;
-        compressor.release.value = 0.25;
-        
-        // Gain ayarı
-        gainNode.gain.value = 1.0;
-        
-        // Bağlantıları kur
-        source.connect(compressor);
-        compressor.connect(gainNode);
-        
-        // Yeni stream oluştur
-        const destination = audioContext.createMediaStreamDestination();
-        gainNode.connect(destination);
-        
-        // Eski audio track'i değiştir
-        const processedTrack = destination.stream.getAudioTracks()[0];
-        const oldTrack = localStream.getAudioTracks()[0];
-        localStream.removeTrack(oldTrack);
-        oldTrack.stop();
-        localStream.addTrack(processedTrack);
+        console.log('✅ Mikrofon stream oluşturuldu');
         
         // Mevcut peer'lara stream ekle
-        peers.forEach(peer => {
+        peers.forEach((peer, userId) => {
             localStream.getTracks().forEach(track => {
+                console.log(`Adding ${track.kind} track to peer ${userId}`);
                 peer.addTrack(track, localStream);
             });
         });
         
-        updateStatus('Mikrofon aktif (Yüksek Kalite)');
-        console.log('✅ Yüksek kaliteli ses aktif');
+        updateStatus('Mikrofon aktif');
         
     } catch (error) {
         console.error('Mikrofon erişim hatası:', error);

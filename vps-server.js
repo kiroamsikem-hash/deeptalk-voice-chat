@@ -357,14 +357,18 @@ io.on('connection', (socket) => {
                 return;
             }
             
-            console.log(`💬 [${roomCode}] ${userName}: ${message}`);
+            // Socket'in hangi odalarda olduğunu kontrol et
+            const rooms = Array.from(socket.rooms);
+            console.log(`💬 [${roomCode}] ${userName}: ${message} (Socket rooms: ${rooms.join(', ')})`);
             
             // Odadaki diğer kullanıcılara mesajı ilet (gönderen hariç)
-            socket.to(roomCode).emit('chat-message', {
+            const sentCount = socket.to(roomCode).emit('chat-message', {
                 userName: userName,
                 message: message,
                 timestamp: new Date().toISOString()
             });
+            
+            console.log(`📤 Mesaj ${roomCode} odasına gönderildi`);
             
         } catch (error) {
             console.error('Chat mesaj hatası:', error);
