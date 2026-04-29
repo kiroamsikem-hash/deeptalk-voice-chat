@@ -25,6 +25,15 @@ function createWindow() {
     autoHideMenuBar: !isDev
   });
 
+  // Ekran paylaşımı için izin ver
+  mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
+    if (permission === 'media') {
+      callback(true);
+    } else {
+      callback(false);
+    }
+  });
+
   // HTML dosyasını yükle
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 

@@ -1,797 +1,873 @@
-class VoiceChatApp {
-    constructor() {
-        this.socket = null;
-        this.localStream = null;
-        this.peers = new Map();
-        this.isConnected = false;
-        this.isMuted = false;
-        this.isSpeakerMuted = false;
-        this.currentRoom = null;
-        this.currentUser = null;
-        this.currentInviteCode = null;
-        this.audioContext = null;
-        this.analyser = null;
-        this.micLevel = 0;
-        
-        this.init();
-    }
+// DeepTalk Voice Chat - Client Application
+const SERVER_URL = 'https://deeptalk.qzz.io';
 
-    init() {
-        this.setupEventListeners();
-        this.setupElectronListeners();
-        this.checkMicrophonePermission();
-    }
+// Global değişkenler
+let socket = null;
+let localStream = null;
+let screenStream = null;
+let peers = new Map();
+let currentRoom = null;
+let currentCode = null;
+let currentUser = null;
+let isMicMuted = false;
+let isSpeakerMuted = false;
+let isCameraOn = false;
+let isScreenSharing = false;
 
-    setupEventListeners() {
-        // Giriş ekranı
-        document.getElementById('join-btn').addEventListener('click', () => this.joinRoomWithCode());
-        document.getElementById('create-room-btn').addEventListener('click', () => this.showCreateRoomScreen());
-        
-        // Oda oluşturma ekranı
-        document.getElementById('create-room-confirm-btn').addEventListener('click', () => this.createRoom());
-        document.getElementById('back-to-join-btn').addEventListener('click', () => this.showScreen('login-screen'));
-        
-        // Davet kodu ekranı
-        document.getElementById('copy-code-btn').addEventListener('click', () => this.copyInviteCode());
-        document.getElementById('enter-created-room-btn').addEventListener('click', () => this.enterCreatedRoom());
-        document.getElementById('back-to-main-btn').addEventListener('click', () => this.showScreen('login-screen'));
-        
-        // Ana konuşma ekranı
-        document.getElementById('copy-current-code-btn').addEventListener('click', () => this.copyCurrentInviteCode());
+// Ayarlar
+let settings = {
+    micId: null,
+    speakerId: null,
+    cameraId: null,
+    videoQuality: 720,
+    screenFps: 30
+};
 
-        // Enter tuşu ile form gönderme
-        document.getElementById('username').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') this.focusNextInput();
+// ICE sunucuları
+const iceServers = {
+    iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' }
+    ]
+};
+
+// Sayfa yüklendiğinde
+document.addEventListener('DOMContentLoaded', () => {
+    initSocket();
+    loadDevices();
+    updateStatus('Bağlantı bekleniyor...');
+});
+
+// Socket.IO bağlantısı
+function initSocket() {
+    socket = io(SERVER_URL, {
+        transports: ['websocket', 'polling'],
+        reconnection: true,
+        reconnectionDelay: 1000,
+        reconnectionAttempts: 10
+    });
+
+    socket.on('connect', () => {
+        console.log('✅ Sunucuya bağlandı');
+        updateStatus('Bağlı');
+    });
+
+    socket.on('disconnect', () => {
+        console.log('❌ Sunucu bağlantısı kesildi');
+        updateStatus('Bağlantı kesildi');
+    });
+
+    socket.on('connect_error', (error) => {
+        console.error('Bağlantı hatası:', error);
+        updateStatus('Bağlantı hatası');
+    });
+
+    // Oda oluşturuldu
+    socket.on('room-created', (data) => {
+        console.log('Oda oluşturuldu:', data);
+        currentCode = data.inviteCode;
+        currentRoom = data.roomName;
+        document.getElementById('invite-code').textContent = data.inviteCode;
+        showScreen('invite');
+    });
+
+    // Oda oluşturma başarısız
+    socket.on('room-creation-failed', (data) => {
+        alert('Oda oluşturulamadı: ' + data.message);
+    });
+
+    // Odaya katılım başarılı
+    socket.on('room-joined', (data) => {
+        console.log('Odaya katıldı:', data);
+        currentCode = data.inviteCode;
+        currentRoom = data.roomName;
+        document.getElementById('room-name').textContent = data.roomName;
+        document.getElementById('room-code').textContent = data.inviteCode;
+        document.getElementById('messages').innerHTML = '';
+        showScreen('chat');
+        startLocalStream();
+        updateStatus(`${data.userCount}/${data.maxUsers} kullanıcı`);
+        addSystemMessage(`${data.roomName} odasına hoş geldiniz!`);
+    });
+
+    // Odaya katılım başarısız
+    socket.on('room-join-failed', (data) => {
+        alert('Odaya katılım başarısız: ' + data.message);
+    });
+
+    // Mevcut kullanıcılar
+    socket.on('existing-users', (users) => {
+        console.log('Mevcut kullanıcılar:', users);
+        users.forEach(user => {
+            addUserToList(user.userId, user.userName);
+            createPeerConnection(user.userId, true);
         });
-        document.getElementById('invite-code').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') this.joinRoomWithCode();
-        });
-        document.getElementById('room-password').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') this.joinRoomWithCode();
-        });
+        updateUserCount();
+    });
 
-        // Davet kodu input'u için otomatik büyük harf
-        document.getElementById('invite-code').addEventListener('input', (e) => {
-            e.target.value = e.target.value.toUpperCase();
-            this.checkInviteCodeRequirements(e.target.value);
-        });
+    // Yeni kullanıcı katıldı
+    socket.on('user-joined', (data) => {
+        console.log('Yeni kullanıcı:', data);
+        addUserToList(data.userId, data.userName);
+        createPeerConnection(data.userId, false);
+        updateUserCount();
+        addSystemMessage(`${data.userName} odaya katıldı`);
+    });
 
-        // Ses kontrolleri
-        document.getElementById('mute-btn').addEventListener('click', () => this.toggleMute());
-        document.getElementById('speaker-btn').addEventListener('click', () => this.toggleSpeaker());
-        document.getElementById('leave-btn').addEventListener('click', () => this.leaveRoom());
+    // Kullanıcı ayrıldı
+    socket.on('user-left', (data) => {
+        console.log('Kullanıcı ayrıldı:', data);
+        removeUserFromList(data.userId);
+        closePeerConnection(data.userId);
+        updateUserCount();
+        addSystemMessage(`${data.userName} odadan ayrıldı`);
+    });
 
-        // Ses ayarları
-        document.getElementById('volume-slider').addEventListener('input', (e) => {
-            this.setVolume(e.target.value / 100);
-        });
-
-        // Modal kontrolleri
-        document.getElementById('close-audio-settings').addEventListener('click', () => {
-            this.closeAudioSettings();
-        });
-        document.getElementById('save-audio-settings').addEventListener('click', () => {
-            this.saveAudioSettings();
-        });
-
-        // Klavye kısayolları
-        document.addEventListener('keydown', (e) => {
-            if (e.code === 'Space' && e.target.tagName !== 'INPUT') {
-                e.preventDefault();
-                this.toggleMute();
-            }
-        });
-    }
-
-    setupElectronListeners() {
-        if (window.electronAPI) {
-            window.electronAPI.onNewRoom(() => {
-                if (this.currentRoom) {
-                    this.leaveRoom();
-                }
-                this.showScreen('login-screen');
-            });
-
-            window.electronAPI.onToggleMute(() => {
-                this.toggleMute();
-            });
-
-            window.electronAPI.onAudioSettings(() => {
-                this.showAudioSettings();
-            });
-        }
-    }
-
-    async checkMicrophonePermission() {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            stream.getTracks().forEach(track => track.stop());
-            this.updateStatus('Mikrofon erişimi onaylandı');
-        } catch (error) {
-            this.updateStatus('Mikrofon erişimi gerekli', 'error');
-            if (window.electronAPI) {
-                window.electronAPI.showErrorDialog(
-                    'Mikrofon Erişimi',
-                    'Sesli konuşma için mikrofon erişimi gereklidir. Lütfen tarayıcı ayarlarından mikrofon iznini verin.'
-                );
-            }
-        }
-    }
-
-    generateInviteCode() {
-        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-        let result = '';
-        for (let i = 0; i < 6; i++) {
-            result += chars.charAt(Math.floor(Math.random() * chars.length));
-        }
-        return result;
-    }
-
-    showCreateRoomScreen() {
-        this.showScreen('create-room-screen');
-        document.getElementById('room-name').focus();
-    }
-
-    async createRoom() {
-        const roomName = document.getElementById('room-name').value.trim();
-        const roomPassword = document.getElementById('room-password-create').value.trim();
-        const maxUsers = parseInt(document.getElementById('max-users').value);
-        const username = document.getElementById('username').value.trim();
-
-        if (!roomName) {
-            this.updateStatus('Lütfen oda adını girin', 'error');
-            return;
-        }
-
-        if (!username) {
-            this.updateStatus('Lütfen kullanıcı adınızı girin', 'error');
-            document.getElementById('username').focus();
-            return;
-        }
-
-        const inviteCode = this.generateInviteCode();
-        
-        try {
-            this.updateConnectionStatus('connecting', 'Oda oluşturuluyor...');
-            
-            // Socket bağlantısı
-            this.socket = io('https://deeptalk.qzz.io', {
-                transports: ['websocket', 'polling'],
-                upgrade: true,
-                rememberUpgrade: true,
-                timeout: 15000,
-                forceNew: true,
-                autoConnect: true
-            });
-            
-            this.socket.on('connect', () => {
-                this.isConnected = true;
-                this.updateConnectionStatus('online', 'Bağlandı');
-                
-                // Oda oluştur
-                this.socket.emit('create-room', {
-                    inviteCode: inviteCode,
-                    roomName: roomName,
-                    password: roomPassword,
-                    maxUsers: maxUsers,
-                    creator: username
-                });
-            });
-
-            this.socket.on('room-created', (data) => {
-                this.currentInviteCode = inviteCode;
-                this.showInviteCodeScreen(inviteCode, roomName, roomPassword, maxUsers);
-            });
-
-            this.socket.on('room-creation-failed', (data) => {
-                this.updateStatus('Oda oluşturulamadı: ' + data.message, 'error');
-                this.updateConnectionStatus('offline', 'Hata');
-            });
-
-            this.setupWebRTCListeners();
-
-        } catch (error) {
-            this.updateStatus('Bağlantı hatası: ' + error.message, 'error');
-            this.updateConnectionStatus('offline', 'Bağlantı Hatası');
-        }
-    }
-
-    showInviteCodeScreen(inviteCode, roomName, password, maxUsers) {
-        document.getElementById('generated-invite-code').textContent = inviteCode;
-        document.getElementById('created-room-name').textContent = roomName;
-        document.getElementById('password-protected').textContent = password ? 'Evet' : 'Hayır';
-        document.getElementById('max-users-display').textContent = maxUsers + ' Kişi';
-        
-        this.showScreen('invite-code-screen');
-    }
-
-    copyInviteCode() {
-        const inviteCode = document.getElementById('generated-invite-code').textContent;
-        navigator.clipboard.writeText(inviteCode).then(() => {
-            const btn = document.getElementById('copy-code-btn');
-            const originalText = btn.innerHTML;
-            btn.innerHTML = '<span class="btn-icon">✅</span>Kopyalandı!';
-            setTimeout(() => {
-                btn.innerHTML = originalText;
-            }, 2000);
-        });
-    }
-
-    copyCurrentInviteCode() {
-        if (this.currentInviteCode) {
-            navigator.clipboard.writeText(this.currentInviteCode).then(() => {
-                const btn = document.getElementById('copy-current-code-btn');
-                btn.textContent = '✅';
-                setTimeout(() => {
-                    btn.textContent = '📋';
-                }, 2000);
-            });
-        }
-    }
-
-    enterCreatedRoom() {
-        const username = document.getElementById('username').value.trim();
-        this.currentUser = username;
-        this.joinRoomDirectly(this.currentInviteCode);
-    }
-
-    checkInviteCodeRequirements(code) {
-        // Davet kodu girildiğinde şifre alanını göster/gizle
-        const passwordGroup = document.getElementById('password-group');
-        if (code.length >= 4) {
-            // Sunucudan oda bilgilerini al
-            this.checkRoomRequirements(code);
-        } else {
-            passwordGroup.style.display = 'none';
-        }
-    }
-
-    checkRoomRequirements(inviteCode) {
-        // Geçici olarak şifre alanını göster
-        // Gerçek uygulamada sunucudan oda bilgilerini alacağız
-        const passwordGroup = document.getElementById('password-group');
-        passwordGroup.style.display = 'block';
-    }
-
-    async joinRoomWithCode() {
-        const username = document.getElementById('username').value.trim();
-        const inviteCode = document.getElementById('invite-code').value.trim();
-        const roomPassword = document.getElementById('room-password').value.trim();
-
-        if (!username || !inviteCode) {
-            this.updateStatus('Lütfen kullanıcı adı ve davet kodu girin', 'error');
-            return;
-        }
-
-        if (inviteCode.length < 4) {
-            this.updateStatus('Davet kodu en az 4 karakter olmalıdır', 'error');
-            return;
-        }
-
-        this.joinRoomDirectly(inviteCode, roomPassword);
-    }
-
-    async joinRoomDirectly(inviteCode, password = '') {
-        const username = document.getElementById('username').value.trim();
-        
-        try {
-            this.updateConnectionStatus('connecting', 'Odaya bağlanıyor...');
-            
-            if (!this.socket || !this.isConnected) {
-                // Socket bağlantısı
-                this.socket = io('https://deeptalk.qzz.io', {
-                    transports: ['websocket', 'polling'],
-                    upgrade: true,
-                    rememberUpgrade: true,
-                    timeout: 15000,
-                    forceNew: true,
-                    autoConnect: true
-                });
-                
-                this.socket.on('connect', () => {
-                    this.isConnected = true;
-                    this.updateConnectionStatus('online', 'Bağlandı');
-                    this.attemptJoinRoom(inviteCode, username, password);
-                });
-            } else {
-                this.attemptJoinRoom(inviteCode, username, password);
-            }
-
-            this.setupWebRTCListeners();
-
-        } catch (error) {
-            this.updateStatus('Bağlantı hatası: ' + error.message, 'error');
-            this.updateConnectionStatus('offline', 'Bağlantı Hatası');
-        }
-    }
-
-    attemptJoinRoom(inviteCode, username, password) {
-        this.socket.emit('join-room-by-code', {
-            inviteCode: inviteCode,
-            userName: username,
-            password: password
-        });
-
-        this.socket.on('room-joined', (data) => {
-            this.currentUser = username;
-            this.currentRoom = data.roomName;
-            this.currentInviteCode = inviteCode;
-            
-            // Mikrofon başlat
-            this.startAudio();
-            
-            // Ekranı değiştir
-            this.showScreen('voice-screen');
-            this.updateRoomInfo();
-        });
-
-        this.socket.on('room-join-failed', (data) => {
-            this.updateStatus('Odaya katılım başarısız: ' + data.message, 'error');
-            this.updateConnectionStatus('offline', 'Hata');
-        });
-
-        this.socket.on('disconnect', (reason) => {
-            this.isConnected = false;
-            this.updateConnectionStatus('offline', 'Bağlantı kesildi: ' + reason);
-        });
-
-        this.socket.on('connect_error', (error) => {
-            this.updateConnectionStatus('offline', 'Bağlantı hatası');
-            this.updateStatus('Sunucuya bağlanılamadı. İnternet bağlantınızı kontrol edin.', 'error');
-        });
-    }
-
-    setupWebRTCListeners() {
-        this.socket.on('user-joined', (data) => {
-            this.addParticipant(data.userId, data.userName);
-            this.createPeerConnection(data.userId, true);
-        });
-
-        this.socket.on('existing-users', (users) => {
-            users.forEach(user => {
-                this.addParticipant(user.userId, user.userName);
-                this.createPeerConnection(user.userId, false);
-            });
-        });
-
-        this.socket.on('user-left', (data) => {
-            this.removeParticipant(data.userId);
-            if (this.peers.has(data.userId)) {
-                this.peers.get(data.userId).close();
-                this.peers.delete(data.userId);
-            }
-        });
-
-        this.socket.on('offer', async (data) => {
-            await this.handleOffer(data.offer, data.caller);
-        });
-
-        this.socket.on('answer', async (data) => {
-            await this.handleAnswer(data.answer, data.answerer);
-        });
-
-        this.socket.on('ice-candidate', async (data) => {
-            await this.handleIceCandidate(data.candidate, data.sender);
-        });
-    }
-
-    async startAudio() {
-        try {
-            this.localStream = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true,
-                    sampleRate: 48000,
-                    channelCount: 1
-                }
-            });
-
-            // Ses seviyesi analizi
-            this.setupAudioAnalysis();
-            
-            this.updateStatus('Mikrofon aktif - Bağlantı kuruldu');
-        } catch (error) {
-            this.updateStatus('Mikrofon başlatılamadı: ' + error.message, 'error');
-            
-            if (error.name === 'NotAllowedError') {
-                if (window.electronAPI) {
-                    window.electronAPI.showErrorDialog(
-                        'Mikrofon İzni',
-                        'Sesli konuşma için mikrofon iznine ihtiyaç var. Lütfen tarayıcı ayarlarından mikrofon iznini verin ve uygulamayı yeniden başlatın.'
-                    );
-                }
-            }
-        }
-    }
-
-    setupAudioAnalysis() {
-        this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        this.analyser = this.audioContext.createAnalyser();
-        const source = this.audioContext.createMediaStreamSource(this.localStream);
-        source.connect(this.analyser);
-
-        this.analyser.fftSize = 256;
-        const bufferLength = this.analyser.frequencyBinCount;
-        const dataArray = new Uint8Array(bufferLength);
-
-        const updateLevel = () => {
-            this.analyser.getByteFrequencyData(dataArray);
-            const average = dataArray.reduce((a, b) => a + b) / bufferLength;
-            this.micLevel = (average / 255) * 100;
-            
-            document.getElementById('mic-level').style.width = this.micLevel + '%';
-            
-            requestAnimationFrame(updateLevel);
-        };
-        updateLevel();
-    }
-
-    async createPeerConnection(userId, isInitiator) {
-        const configuration = {
-            iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' },
-                { urls: 'stun:stun2.l.google.com:19302' },
-                { urls: 'stun:stun3.l.google.com:19302' },
-                { urls: 'stun:stun4.l.google.com:19302' }
-            ],
-            iceCandidatePoolSize: 10
-        };
-
-        const peerConnection = new RTCPeerConnection(configuration);
-        this.peers.set(userId, peerConnection);
-
-        if (this.localStream) {
-            this.localStream.getTracks().forEach(track => {
-                peerConnection.addTrack(track, this.localStream);
-            });
-        }
-
-        peerConnection.ontrack = (event) => {
-            const remoteStream = event.streams[0];
-            this.playRemoteAudio(userId, remoteStream);
-        };
-
-        peerConnection.onicecandidate = (event) => {
-            if (event.candidate) {
-                this.socket.emit('ice-candidate', {
-                    target: userId,
-                    candidate: event.candidate
-                });
-            }
-        };
-
-        peerConnection.onconnectionstatechange = () => {
-            const state = peerConnection.connectionState;
-            this.updateParticipantStatus(userId, state);
-            
-            if (state === 'failed' || state === 'disconnected') {
-                setTimeout(() => {
-                    if (peerConnection.connectionState === 'failed') {
-                        this.createPeerConnection(userId, isInitiator);
-                    }
-                }, 3000);
-            }
-        };
-
-        if (isInitiator) {
+    // WebRTC sinyalleri
+    socket.on('offer', async (data) => {
+        console.log('Offer alındı:', data.caller);
+        const peer = peers.get(data.caller);
+        if (peer) {
             try {
-                const offer = await peerConnection.createOffer({
+                await peer.setRemoteDescription(new RTCSessionDescription(data.offer));
+                const answer = await peer.createAnswer({
                     offerToReceiveAudio: true,
-                    offerToReceiveVideo: false
+                    offerToReceiveVideo: true
                 });
-                await peerConnection.setLocalDescription(offer);
-                
-                this.socket.emit('offer', {
-                    target: userId,
-                    offer: offer
-                });
+                await peer.setLocalDescription(answer);
+                socket.emit('answer', { target: data.caller, answer: answer });
+                console.log('Answer gönderildi:', data.caller);
             } catch (error) {
-                console.error('Offer oluşturma hatası:', error);
+                console.error('Answer oluşturma hatası:', error);
             }
         }
-    }
+    });
 
-    async handleOffer(offer, callerId) {
-        const peerConnection = this.peers.get(callerId);
-        if (!peerConnection) return;
-
-        await peerConnection.setRemoteDescription(offer);
-        const answer = await peerConnection.createAnswer();
-        await peerConnection.setLocalDescription(answer);
-
-        this.socket.emit('answer', {
-            target: callerId,
-            answer: answer
-        });
-    }
-
-    async handleAnswer(answer, answererId) {
-        const peerConnection = this.peers.get(answererId);
-        if (!peerConnection) return;
-
-        await peerConnection.setRemoteDescription(answer);
-    }
-
-    async handleIceCandidate(candidate, senderId) {
-        const peerConnection = this.peers.get(senderId);
-        if (!peerConnection) return;
-
-        await peerConnection.addIceCandidate(candidate);
-    }
-
-    playRemoteAudio(userId, stream) {
-        let audioElement = document.getElementById(`audio-${userId}`);
-        if (!audioElement) {
-            audioElement = document.createElement('audio');
-            audioElement.id = `audio-${userId}`;
-            audioElement.autoplay = true;
-            document.body.appendChild(audioElement);
-        }
-        audioElement.srcObject = stream;
-    }
-
-    toggleMute() {
-        if (!this.localStream) return;
-
-        this.isMuted = !this.isMuted;
-        const audioTrack = this.localStream.getAudioTracks()[0];
-        if (audioTrack) {
-            audioTrack.enabled = !this.isMuted;
-        }
-
-        const muteBtn = document.getElementById('mute-btn');
-        const icon = muteBtn.querySelector('.icon');
-        const text = muteBtn.querySelector('.text');
-
-        if (this.isMuted) {
-            muteBtn.classList.add('muted');
-            icon.textContent = '🔇';
-            text.textContent = 'Mikrofon Kapalı';
-        } else {
-            muteBtn.classList.remove('muted');
-            icon.textContent = '🎤';
-            text.textContent = 'Mikrofon Açık';
-        }
-    }
-
-    toggleSpeaker() {
-        this.isSpeakerMuted = !this.isSpeakerMuted;
-        
-        document.querySelectorAll('audio[id^="audio-"]').forEach(audio => {
-            audio.muted = this.isSpeakerMuted;
-        });
-
-        const speakerBtn = document.getElementById('speaker-btn');
-        const icon = speakerBtn.querySelector('.icon');
-        const text = speakerBtn.querySelector('.text');
-
-        if (this.isSpeakerMuted) {
-            speakerBtn.classList.add('speaker-muted');
-            icon.textContent = '🔇';
-            text.textContent = 'Hoparlör Kapalı';
-        } else {
-            speakerBtn.classList.remove('speaker-muted');
-            icon.textContent = '🔊';
-            text.textContent = 'Hoparlör Açık';
-        }
-    }
-
-    setVolume(volume) {
-        document.querySelectorAll('audio[id^="audio-"]').forEach(audio => {
-            audio.volume = volume;
-        });
-        
-        const speakerLevel = document.getElementById('speaker-level');
-        speakerLevel.style.width = (volume * 100) + '%';
-    }
-
-    leaveRoom() {
-        if (this.socket) {
-            this.socket.disconnect();
-        }
-
-        this.peers.forEach(peer => peer.close());
-        this.peers.clear();
-
-        if (this.localStream) {
-            this.localStream.getTracks().forEach(track => track.stop());
-            this.localStream = null;
-        }
-
-        if (this.audioContext) {
-            this.audioContext.close();
-            this.audioContext = null;
-        }
-
-        document.querySelectorAll('audio[id^="audio-"]').forEach(audio => {
-            audio.remove();
-        });
-
-        this.currentRoom = null;
-        this.currentUser = null;
-        this.currentInviteCode = null;
-        this.isConnected = false;
-
-        this.showScreen('login-screen');
-        this.updateConnectionStatus('offline', 'Bağlantı Bekleniyor');
-        this.clearParticipants();
-    }
-
-    addParticipant(userId, userName) {
-        const participantsList = document.getElementById('participants-list');
-        
-        const participantDiv = document.createElement('div');
-        participantDiv.className = 'participant';
-        participantDiv.id = `participant-${userId}`;
-        
-        participantDiv.innerHTML = `
-            <div class="participant-avatar">${userName.charAt(0).toUpperCase()}</div>
-            <div class="participant-info">
-                <div class="participant-name">${userName}</div>
-                <div class="participant-status">Bağlandı</div>
-            </div>
-        `;
-        
-        participantsList.appendChild(participantDiv);
-        this.updateParticipantCount();
-    }
-
-    removeParticipant(userId) {
-        const participantElement = document.getElementById(`participant-${userId}`);
-        if (participantElement) {
-            participantElement.remove();
-        }
-        
-        const audioElement = document.getElementById(`audio-${userId}`);
-        if (audioElement) {
-            audioElement.remove();
-        }
-        
-        this.updateParticipantCount();
-    }
-
-    updateParticipantStatus(userId, status) {
-        const participantElement = document.getElementById(`participant-${userId}`);
-        if (participantElement) {
-            const statusElement = participantElement.querySelector('.participant-status');
-            const avatar = participantElement.querySelector('.participant-avatar');
-            
-            switch (status) {
-                case 'connected':
-                    statusElement.textContent = 'Bağlandı';
-                    avatar.classList.remove('speaking');
-                    break;
-                case 'connecting':
-                    statusElement.textContent = 'Bağlanıyor...';
-                    break;
-                case 'disconnected':
-                    statusElement.textContent = 'Bağlantı Kesildi';
-                    break;
-            }
-        }
-    }
-
-    updateParticipantCount() {
-        const count = document.querySelectorAll('.participant').length;
-        document.getElementById('participant-count').textContent = count;
-    }
-
-    clearParticipants() {
-        document.getElementById('participants-list').innerHTML = '';
-        this.updateParticipantCount();
-    }
-
-    showScreen(screenId) {
-        document.querySelectorAll('.screen').forEach(screen => {
-            screen.classList.remove('active');
-        });
-        document.getElementById(screenId).classList.add('active');
-    }
-
-    updateRoomInfo() {
-        document.getElementById('current-user').textContent = `Kullanıcı: ${this.currentUser}`;
-        document.getElementById('current-room-name').textContent = this.currentRoom || '-';
-        document.getElementById('current-invite-code').textContent = this.currentInviteCode || '-';
-    }
-
-    updateStatus(message, type = 'info') {
-        const statusElement = document.getElementById('status');
-        statusElement.textContent = message;
-        statusElement.className = `status-message ${type}`;
-    }
-
-    updateConnectionStatus(status, text) {
-        const statusDot = document.querySelector('.status-dot');
-        const statusText = document.querySelector('.status-text');
-        
-        statusDot.className = `status-dot ${status}`;
-        statusText.textContent = text;
-    }
-
-    focusNextInput() {
-        document.getElementById('invite-code').focus();
-    }
-
-    async showAudioSettings() {
-        const modal = document.getElementById('audio-settings-modal');
-        modal.classList.add('active');
-        await this.loadAudioDevices();
-    }
-
-    closeAudioSettings() {
-        const modal = document.getElementById('audio-settings-modal');
-        modal.classList.remove('active');
-    }
-
-    async loadAudioDevices() {
-        try {
-            const devices = await navigator.mediaDevices.enumerateDevices();
-            
-            const micSelect = document.getElementById('mic-select');
-            const speakerSelect = document.getElementById('speaker-select');
-            
-            micSelect.innerHTML = '';
-            speakerSelect.innerHTML = '';
-            
-            devices.forEach(device => {
-                const option = document.createElement('option');
-                option.value = device.deviceId;
-                option.textContent = device.label || `${device.kind} ${device.deviceId.substr(0, 8)}`;
-                
-                if (device.kind === 'audioinput') {
-                    micSelect.appendChild(option);
-                } else if (device.kind === 'audiooutput') {
-                    speakerSelect.appendChild(option);
-                }
-            });
-        } catch (error) {
-            console.error('Cihazlar yüklenemedi:', error);
-        }
-    }
-
-    async saveAudioSettings() {
-        const micId = document.getElementById('mic-select').value;
-        const noiseSuppression = document.getElementById('noise-suppression').checked;
-        const echoCancellation = document.getElementById('echo-cancellation').checked;
-        
-        if (micId && this.localStream) {
+    socket.on('answer', async (data) => {
+        console.log('Answer alındı:', data.answerer);
+        const peer = peers.get(data.answerer);
+        if (peer) {
             try {
-                const newStream = await navigator.mediaDevices.getUserMedia({
-                    audio: {
-                        deviceId: micId,
-                        echoCancellation: echoCancellation,
-                        noiseSuppression: noiseSuppression,
-                        autoGainControl: true
-                    }
-                });
-                
-                const audioTrack = newStream.getAudioTracks()[0];
-                const oldTrack = this.localStream.getAudioTracks()[0];
-                
-                this.peers.forEach(peer => {
-                    const sender = peer.getSenders().find(s => s.track === oldTrack);
-                    if (sender) {
-                        sender.replaceTrack(audioTrack);
-                    }
-                });
-                
-                oldTrack.stop();
-                this.localStream.removeTrack(oldTrack);
-                this.localStream.addTrack(audioTrack);
-                
-                this.updateStatus('Ses ayarları güncellendi');
+                await peer.setRemoteDescription(new RTCSessionDescription(data.answer));
+                console.log('Answer set edildi:', data.answerer);
             } catch (error) {
-                this.updateStatus('Ses ayarları güncellenemedi: ' + error.message, 'error');
+                console.error('Answer set hatası:', error);
             }
         }
-        
-        this.closeAudioSettings();
+    });
+
+    socket.on('ice-candidate', async (data) => {
+        const peer = peers.get(data.sender);
+        if (peer && data.candidate) {
+            await peer.addIceCandidate(new RTCIceCandidate(data.candidate));
+        }
+    });
+
+    // Chat mesajları
+    socket.on('chat-message', (data) => {
+        console.log('💬 Chat mesajı alındı:', data);
+        addMessage(data.userName, data.message, false);
+    });
+}
+
+// Tab değiştirme
+function switchTab(tab) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    
+    if (tab === 'join') {
+        document.querySelectorAll('.tab')[0].classList.add('active');
+        document.getElementById('join-tab').classList.add('active');
+    } else {
+        document.querySelectorAll('.tab')[1].classList.add('active');
+        document.getElementById('create-tab').classList.add('active');
     }
 }
 
-// Uygulamayı başlat
-document.addEventListener('DOMContentLoaded', () => {
-    new VoiceChatApp();
-});
+// Odaya katıl
+function join() {
+    const name = document.getElementById('name-join').value.trim();
+    const code = document.getElementById('code').value.trim().toUpperCase();
+    
+    if (!name) {
+        alert('Lütfen adınızı girin');
+        return;
+    }
+    
+    if (!code || code.length !== 6) {
+        alert('Lütfen 6 haneli davet kodunu girin');
+        return;
+    }
+    
+    currentUser = name;
+    socket.emit('join-room-by-code', {
+        inviteCode: code,
+        userName: name,
+        password: ''
+    });
+}
+
+// Oda oluştur
+function create() {
+    const name = document.getElementById('name-create').value.trim();
+    const roomname = document.getElementById('roomname').value.trim();
+    
+    if (!name) {
+        alert('Lütfen adınızı girin');
+        return;
+    }
+    
+    if (!roomname) {
+        alert('Lütfen oda adı girin');
+        return;
+    }
+    
+    currentUser = name;
+    socket.emit('create-room', {
+        roomName: roomname,
+        password: '',
+        maxUsers: 10,
+        creator: name
+    });
+}
+
+// Davet kodunu kopyala
+function copyCode() {
+    const code = document.getElementById('invite-code').textContent;
+    navigator.clipboard.writeText(code).then(() => {
+        alert('Davet kodu kopyalandı: ' + code);
+    });
+}
+
+// Odaya gir (davet ekranından)
+function enterRoom() {
+    socket.emit('join-room-by-code', {
+        inviteCode: currentCode,
+        userName: currentUser,
+        password: ''
+    });
+}
+
+// Odadan ayrıl
+function leave() {
+    stopLocalStream();
+    stopScreenStream();
+    peers.forEach((peer, id) => closePeerConnection(id));
+    peers.clear();
+    
+    currentRoom = null;
+    currentCode = null;
+    currentUser = null;
+    
+    document.getElementById('userlist').innerHTML = '';
+    document.getElementById('messages').innerHTML = '';
+    document.getElementById('name-join').value = '';
+    document.getElementById('code').value = '';
+    document.getElementById('name-create').value = '';
+    document.getElementById('roomname').value = '';
+    
+    showScreen('login');
+    
+    if (socket) {
+        socket.disconnect();
+        socket.connect();
+    }
+}
+
+// Ekran göster
+function showScreen(screen) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById(screen).classList.add('active');
+}
+
+// Mikrofon aç/kapat
+function toggleMic() {
+    if (!localStream) return;
+    
+    const audioTrack = localStream.getAudioTracks()[0];
+    if (audioTrack) {
+        isMicMuted = !isMicMuted;
+        audioTrack.enabled = !isMicMuted;
+        
+        const btn = document.getElementById('mic');
+        if (isMicMuted) {
+            btn.classList.add('muted');
+            btn.textContent = '🎤🚫';
+        } else {
+            btn.classList.remove('muted');
+            btn.textContent = '🎤';
+        }
+    }
+}
+
+// Hoparlör aç/kapat
+function toggleSpeaker() {
+    isSpeakerMuted = !isSpeakerMuted;
+    
+    document.querySelectorAll('audio').forEach(audio => {
+        audio.muted = isSpeakerMuted;
+    });
+    
+    const btn = document.getElementById('speaker');
+    if (isSpeakerMuted) {
+        btn.classList.add('muted');
+        btn.textContent = '🔇';
+    } else {
+        btn.classList.remove('muted');
+        btn.textContent = '🔊';
+    }
+}
+
+// Kamera aç/kapat
+async function toggleCamera() {
+    if (!isCameraOn) {
+        try {
+            const constraints = {
+                video: {
+                    deviceId: settings.cameraId ? { exact: settings.cameraId } : undefined,
+                    width: { ideal: settings.videoQuality },
+                    height: { ideal: settings.videoQuality * 0.75 }
+                }
+            };
+            
+            const videoStream = await navigator.mediaDevices.getUserMedia(constraints);
+            const videoTrack = videoStream.getVideoTracks()[0];
+            
+            // Mevcut stream'e video track ekle
+            if (localStream) {
+                localStream.addTrack(videoTrack);
+                
+                // Tüm peer'lara video track gönder
+                peers.forEach(peer => {
+                    const sender = peer.getSenders().find(s => s.track?.kind === 'video');
+                    if (sender) {
+                        sender.replaceTrack(videoTrack);
+                    } else {
+                        peer.addTrack(videoTrack, localStream);
+                    }
+                });
+            }
+            
+            // Video önizleme göster
+            const localVideo = document.getElementById('local-video');
+            localVideo.srcObject = new MediaStream([videoTrack]);
+            localVideo.style.display = 'block';
+            
+            isCameraOn = true;
+            document.getElementById('camera').classList.add('active');
+            
+        } catch (error) {
+            console.error('Kamera açma hatası:', error);
+            alert('Kamera açılamadı: ' + error.message);
+        }
+    } else {
+        // Kamerayı kapat
+        if (localStream) {
+            const videoTracks = localStream.getVideoTracks();
+            videoTracks.forEach(track => {
+                track.stop();
+                localStream.removeTrack(track);
+            });
+            
+            // Peer'lardan video track'i kaldır
+            peers.forEach(peer => {
+                const sender = peer.getSenders().find(s => s.track?.kind === 'video');
+                if (sender) {
+                    peer.removeTrack(sender);
+                }
+            });
+        }
+        
+        document.getElementById('local-video').style.display = 'none';
+        isCameraOn = false;
+        document.getElementById('camera').classList.remove('active');
+    }
+}
+
+// Ekran paylaşımı aç/kapat
+async function toggleScreen() {
+    if (!isScreenSharing) {
+        try {
+            // Electron'da ekran paylaşımı için
+            if (!navigator.mediaDevices.getDisplayMedia) {
+                alert('Ekran paylaşımı bu tarayıcıda desteklenmiyor. Lütfen uygulamayı güncelleyin.');
+                return;
+            }
+            
+            const constraints = {
+                video: {
+                    cursor: 'always',
+                    displaySurface: 'monitor',
+                    logicalSurface: true,
+                    width: { ideal: 1920, max: 1920 },
+                    height: { ideal: 1080, max: 1080 },
+                    frameRate: { ideal: settings.screenFps, max: 60 }
+                },
+                audio: false
+            };
+            
+            console.log('Ekran paylaşımı başlatılıyor...');
+            screenStream = await navigator.mediaDevices.getDisplayMedia(constraints);
+            const screenTrack = screenStream.getVideoTracks()[0];
+            
+            console.log('Ekran track özellikleri:', screenTrack.getSettings());
+            
+            // Ekran paylaşımı durdurulduğunda
+            screenTrack.onended = () => {
+                console.log('Ekran paylaşımı kullanıcı tarafından durduruldu');
+                stopScreenStream();
+            };
+            
+            // Tüm peer'lara ekran track'i gönder
+            let tracksSent = 0;
+            peers.forEach((peer, userId) => {
+                const sender = peer.getSenders().find(s => s.track?.kind === 'video');
+                if (sender) {
+                    sender.replaceTrack(screenTrack)
+                        .then(() => {
+                            tracksSent++;
+                            console.log(`Ekran track'i ${userId}'ye gönderildi`);
+                        })
+                        .catch(e => console.error(`Track replace error for ${userId}:`, e));
+                } else {
+                    peer.addTrack(screenTrack, screenStream);
+                    tracksSent++;
+                    console.log(`Ekran track'i ${userId}'ye eklendi`);
+                }
+            });
+            
+            console.log(`Ekran ${tracksSent} peer'a gönderildi`);
+            
+            // Ekran önizleme göster
+            const localVideo = document.getElementById('local-video');
+            localVideo.srcObject = screenStream;
+            localVideo.style.display = 'block';
+            
+            isScreenSharing = true;
+            document.getElementById('screen').classList.add('active');
+            
+            // Kamera kapatıldı olarak işaretle (ama stream'i tutuyoruz)
+            if (isCameraOn) {
+                document.getElementById('camera').classList.remove('active');
+            }
+            
+            updateStatus('Ekran paylaşılıyor');
+            
+        } catch (error) {
+            console.error('Ekran paylaşımı hatası:', error);
+            if (error.name === 'NotAllowedError') {
+                console.log('Kullanıcı ekran paylaşımını reddetti');
+            } else if (error.name === 'NotSupportedError') {
+                alert('Ekran paylaşımı desteklenmiyor. Electron sürümünüz eski olabilir.');
+            } else {
+                alert('Ekran paylaşımı başlatılamadı: ' + error.message);
+            }
+        }
+    } else {
+        stopScreenStream();
+    }
+}
+
+// Ayarları göster
+function showSettings() {
+    loadDevices();
+    document.getElementById('settings-modal').classList.add('active');
+}
+
+// Ayarları kapat
+function closeSettings() {
+    document.getElementById('settings-modal').classList.remove('active');
+}
+
+// Ayarları kaydet
+async function saveSettings() {
+    settings.micId = document.getElementById('mic-select').value;
+    settings.speakerId = document.getElementById('speaker-select').value;
+    settings.cameraId = document.getElementById('camera-select').value;
+    settings.videoQuality = parseInt(document.getElementById('quality').value);
+    settings.screenFps = parseInt(document.getElementById('fps').value);
+    
+    // Mikrofonu yeniden başlat
+    if (localStream) {
+        await stopLocalStream();
+        await startLocalStream();
+    }
+    
+    closeSettings();
+    alert('Ayarlar kaydedildi');
+}
+
+// Cihazları yükle
+async function loadDevices() {
+    try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        
+        const micSelect = document.getElementById('mic-select');
+        const speakerSelect = document.getElementById('speaker-select');
+        const cameraSelect = document.getElementById('camera-select');
+        
+        micSelect.innerHTML = '';
+        speakerSelect.innerHTML = '';
+        cameraSelect.innerHTML = '';
+        
+        devices.forEach(device => {
+            const option = document.createElement('option');
+            option.value = device.deviceId;
+            option.textContent = device.label || `${device.kind} ${device.deviceId.substr(0, 5)}`;
+            
+            if (device.kind === 'audioinput') {
+                micSelect.appendChild(option);
+            } else if (device.kind === 'audiooutput') {
+                speakerSelect.appendChild(option);
+            } else if (device.kind === 'videoinput') {
+                cameraSelect.appendChild(option);
+            }
+        });
+        
+        // Mevcut ayarları seç
+        if (settings.micId) micSelect.value = settings.micId;
+        if (settings.speakerId) speakerSelect.value = settings.speakerId;
+        if (settings.cameraId) cameraSelect.value = settings.cameraId;
+        
+    } catch (error) {
+        console.error('Cihaz listesi alınamadı:', error);
+    }
+}
+
+// Yerel stream başlat
+async function startLocalStream() {
+    try {
+        const constraints = {
+            audio: {
+                deviceId: settings.micId ? { exact: settings.micId } : undefined,
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+                sampleRate: 48000,  // Yüksek kalite ses
+                sampleSize: 16,
+                channelCount: 1,
+                latency: 0,
+                volume: 1.0
+            },
+            video: false
+        };
+        
+        localStream = await navigator.mediaDevices.getUserMedia(constraints);
+        
+        // Ses seviyesi kontrolü için AudioContext kullan
+        const audioContext = new AudioContext();
+        const source = audioContext.createMediaStreamSource(localStream);
+        const gainNode = audioContext.createGain();
+        const compressor = audioContext.createDynamicsCompressor();
+        
+        // Compressor ayarları (ses kalitesini artırır)
+        compressor.threshold.value = -50;  // dB - bu değerin altındaki sesler bastırılır
+        compressor.knee.value = 40;
+        compressor.ratio.value = 12;
+        compressor.attack.value = 0.003;
+        compressor.release.value = 0.25;
+        
+        // Gain ayarı
+        gainNode.gain.value = 1.0;
+        
+        // Bağlantıları kur
+        source.connect(compressor);
+        compressor.connect(gainNode);
+        
+        // Yeni stream oluştur
+        const destination = audioContext.createMediaStreamDestination();
+        gainNode.connect(destination);
+        
+        // Eski audio track'i değiştir
+        const processedTrack = destination.stream.getAudioTracks()[0];
+        const oldTrack = localStream.getAudioTracks()[0];
+        localStream.removeTrack(oldTrack);
+        oldTrack.stop();
+        localStream.addTrack(processedTrack);
+        
+        // Mevcut peer'lara stream ekle
+        peers.forEach(peer => {
+            localStream.getTracks().forEach(track => {
+                peer.addTrack(track, localStream);
+            });
+        });
+        
+        updateStatus('Mikrofon aktif (Yüksek Kalite)');
+        console.log('✅ Yüksek kaliteli ses aktif');
+        
+    } catch (error) {
+        console.error('Mikrofon erişim hatası:', error);
+        updateStatus('Mikrofon hatası');
+        alert('Mikrofon erişimi reddedildi');
+    }
+}
+
+// Yerel stream durdur
+function stopLocalStream() {
+    if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+        localStream = null;
+    }
+    isCameraOn = false;
+    document.getElementById('local-video').style.display = 'none';
+    document.getElementById('camera').classList.remove('active');
+}
+
+// Ekran stream durdur
+function stopScreenStream() {
+    if (screenStream) {
+        screenStream.getTracks().forEach(track => track.stop());
+        screenStream = null;
+    }
+    
+    // Kamera açıksa kameraya geri dön
+    if (isCameraOn && localStream) {
+        const videoTrack = localStream.getVideoTracks()[0];
+        if (videoTrack) {
+            peers.forEach(peer => {
+                const sender = peer.getSenders().find(s => s.track?.kind === 'video');
+                if (sender) {
+                    sender.replaceTrack(videoTrack).catch(e => console.error('Track replace error:', e));
+                }
+            });
+            document.getElementById('local-video').srcObject = new MediaStream([videoTrack]);
+            document.getElementById('camera').classList.add('active');
+        }
+    } else {
+        // Kamera kapalıysa video track'i kaldır
+        peers.forEach(peer => {
+            const sender = peer.getSenders().find(s => s.track?.kind === 'video');
+            if (sender && sender.track) {
+                sender.replaceTrack(null).catch(e => console.error('Track remove error:', e));
+            }
+        });
+        document.getElementById('local-video').style.display = 'none';
+    }
+    
+    isScreenSharing = false;
+    document.getElementById('screen').classList.remove('active');
+}
+
+// Peer bağlantısı oluştur
+function createPeerConnection(userId, isInitiator) {
+    console.log(`Creating peer connection for ${userId}, isInitiator: ${isInitiator}`);
+    
+    const peer = new RTCPeerConnection(iceServers);
+    peers.set(userId, peer);
+    
+    // Yerel stream'i ekle
+    if (localStream) {
+        localStream.getTracks().forEach(track => {
+            console.log(`Adding ${track.kind} track to peer ${userId}`);
+            peer.addTrack(track, localStream);
+        });
+    }
+    
+    // ICE candidate
+    peer.onicecandidate = (event) => {
+        if (event.candidate) {
+            socket.emit('ice-candidate', {
+                target: userId,
+                candidate: event.candidate
+            });
+        }
+    };
+    
+    // Uzak stream alındığında
+    peer.ontrack = (event) => {
+        console.log('Track alındı:', event.track.kind, 'from', userId);
+        
+        if (event.track.kind === 'audio') {
+            let audioElement = document.getElementById(`audio-${userId}`);
+            if (!audioElement) {
+                audioElement = document.createElement('audio');
+                audioElement.id = `audio-${userId}`;
+                audioElement.autoplay = true;
+                audioElement.muted = isSpeakerMuted;
+                audioElement.volume = 1.0;
+                document.body.appendChild(audioElement);
+                console.log(`Audio element created for ${userId}`);
+            }
+            
+            if (!audioElement.srcObject) {
+                audioElement.srcObject = new MediaStream();
+            }
+            
+            audioElement.srcObject.addTrack(event.track);
+            
+            // Ses çalmayı zorla
+            audioElement.play()
+                .then(() => console.log(`Audio playing for ${userId}`))
+                .catch(e => console.error('Audio play error:', e));
+                
+        } else if (event.track.kind === 'video') {
+            // Video track için remote video elementi oluştur
+            let videoElement = document.getElementById(`video-${userId}`);
+            if (!videoElement) {
+                videoElement = document.createElement('video');
+                videoElement.id = `video-${userId}`;
+                videoElement.autoplay = true;
+                videoElement.style.width = '100%';
+                videoElement.style.borderRadius = '10px';
+                videoElement.style.marginTop = '10px';
+                document.getElementById('chat').appendChild(videoElement);
+                console.log(`Video element created for ${userId}`);
+            }
+            
+            if (!videoElement.srcObject) {
+                videoElement.srcObject = new MediaStream();
+            }
+            
+            videoElement.srcObject.addTrack(event.track);
+        }
+    };
+    
+    // Bağlantı durumu
+    peer.onconnectionstatechange = () => {
+        console.log(`Peer ${userId} durumu:`, peer.connectionState);
+        if (peer.connectionState === 'connected') {
+            console.log(`✅ Peer ${userId} bağlandı`);
+        } else if (peer.connectionState === 'disconnected' || peer.connectionState === 'failed') {
+            console.log(`❌ Peer ${userId} bağlantısı kesildi`);
+            closePeerConnection(userId);
+        }
+    };
+    
+    // ICE bağlantı durumu
+    peer.oniceconnectionstatechange = () => {
+        console.log(`Peer ${userId} ICE durumu:`, peer.iceConnectionState);
+    };
+    
+    // Başlatıcı ise offer gönder
+    if (isInitiator) {
+        setTimeout(() => {
+            peer.createOffer({
+                offerToReceiveAudio: true,
+                offerToReceiveVideo: true
+            })
+                .then(offer => {
+                    console.log(`Offer created for ${userId}`);
+                    return peer.setLocalDescription(offer);
+                })
+                .then(() => {
+                    socket.emit('offer', {
+                        target: userId,
+                        offer: peer.localDescription
+                    });
+                    console.log(`Offer sent to ${userId}`);
+                })
+                .catch(error => console.error('Offer oluşturma hatası:', error));
+        }, 500); // Stream'in eklenmesi için kısa bir bekleme
+    }
+    
+    return peer;
+}
+
+// Peer bağlantısını kapat
+function closePeerConnection(userId) {
+    const peer = peers.get(userId);
+    if (peer) {
+        peer.close();
+        peers.delete(userId);
+    }
+    
+    const audioElement = document.getElementById(`audio-${userId}`);
+    if (audioElement) {
+        audioElement.remove();
+    }
+    
+    const videoElement = document.getElementById(`video-${userId}`);
+    if (videoElement) {
+        videoElement.remove();
+    }
+}
+
+// Kullanıcı listesine ekle
+function addUserToList(userId, userName) {
+    const userlist = document.getElementById('userlist');
+    
+    if (!document.getElementById(`user-${userId}`)) {
+        const userDiv = document.createElement('div');
+        userDiv.id = `user-${userId}`;
+        userDiv.className = 'user';
+        userDiv.textContent = userName;
+        userlist.appendChild(userDiv);
+    }
+}
+
+// Kullanıcı listesinden çıkar
+function removeUserFromList(userId) {
+    const userDiv = document.getElementById(`user-${userId}`);
+    if (userDiv) {
+        userDiv.remove();
+    }
+}
+
+// Kullanıcı sayısını güncelle
+function updateUserCount() {
+    const count = document.querySelectorAll('.user').length + 1; // +1 kendimiz
+    document.getElementById('count').textContent = count;
+}
+
+// Durum güncelle
+function updateStatus(message) {
+    document.getElementById('status').textContent = message;
+}
+
+// Mesaj gönder
+function sendMessage() {
+    const input = document.getElementById('message-input');
+    const message = input.value.trim();
+    
+    if (!message || !currentCode) {
+        console.log('Mesaj gönderilemedi:', { message, currentCode, currentUser });
+        return;
+    }
+    
+    console.log('Mesaj gönderiliyor:', { roomCode: currentCode, userName: currentUser, message });
+    
+    // Kendi mesajımızı göster
+    addMessage('Sen', message, true);
+    
+    // Sunucuya gönder
+    socket.emit('chat-message', {
+        roomCode: currentCode,
+        userName: currentUser,
+        message: message
+    });
+    
+    input.value = '';
+}
+
+// Mesaj ekle
+function addMessage(sender, text, isOwn) {
+    const messagesDiv = document.getElementById('messages');
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `message ${isOwn ? 'own' : 'other'}`;
+    
+    const senderSpan = document.createElement('div');
+    senderSpan.className = 'sender';
+    senderSpan.textContent = sender;
+    
+    const textSpan = document.createElement('div');
+    textSpan.className = 'text';
+    textSpan.textContent = text;
+    
+    messageDiv.appendChild(senderSpan);
+    messageDiv.appendChild(textSpan);
+    messagesDiv.appendChild(messageDiv);
+    
+    // Otomatik scroll
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+}
+
+// Sistem mesajı ekle
+function addSystemMessage(text) {
+    const messagesDiv = document.getElementById('messages');
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'message system';
+    messageDiv.textContent = text;
+    messagesDiv.appendChild(messageDiv);
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+}

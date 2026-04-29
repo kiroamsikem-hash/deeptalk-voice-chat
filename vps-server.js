@@ -347,6 +347,30 @@ io.on('connection', (socket) => {
         }
     });
 
+    // Chat mesajı
+    socket.on('chat-message', (data) => {
+        try {
+            const { roomCode, userName, message } = data;
+            
+            if (!roomCode || !userName || !message) {
+                console.log('❌ Eksik chat verisi:', data);
+                return;
+            }
+            
+            console.log(`💬 [${roomCode}] ${userName}: ${message}`);
+            
+            // Odadaki diğer kullanıcılara mesajı ilet (gönderen hariç)
+            socket.to(roomCode).emit('chat-message', {
+                userName: userName,
+                message: message,
+                timestamp: new Date().toISOString()
+            });
+            
+        } catch (error) {
+            console.error('Chat mesaj hatası:', error);
+        }
+    });
+
     // Kullanıcı ayrıldığında
     socket.on('disconnect', (reason) => {
         try {
