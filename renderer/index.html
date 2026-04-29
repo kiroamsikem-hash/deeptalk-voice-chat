@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sesli Konuşma Uygulaması</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Başlık Çubuğu -->
+        <div class="title-bar">
+            <div class="title-info">
+                <div class="app-icon">🎙️</div>
+                <h1>Sesli Konuşma</h1>
+            </div>
+            <div class="connection-status" id="connection-status">
+                <span class="status-dot offline"></span>
+                <span class="status-text">Bağlantı Bekleniyor</span>
+            </div>
+        </div>
+
+        <!-- Ana İçerik -->
+        <div class="main-content">
+            <!-- Giriş Ekranı -->
+            <div id="login-screen" class="screen active">
+                <div class="login-container">
+                    <div class="welcome-section">
+                        <div class="welcome-icon">🎧</div>
+                        <h2>Hoş Geldiniz</h2>
+                        <p>Arkadaşlarınızla yüksek kaliteli sesli sohbet edin</p>
+                    </div>
+                    
+                    <div class="login-form">
+                        <div class="input-group">
+                            <label for="username">Kullanıcı Adınız</label>
+                            <input type="text" id="username" placeholder="Adınızı girin" maxlength="20">
+                        </div>
+                        
+                        <div class="input-group">
+                            <label for="room-id">Oda Adı</label>
+                            <input type="text" id="room-id" placeholder="Oda adı (örn: arkadaşlar)" maxlength="30">
+                        </div>
+                        
+                        <button id="join-btn" class="primary-btn">
+                            <span class="btn-icon">🚀</span>
+                            Odaya Katıl
+                        </button>
+                        
+        <div class="tips">
+                            <p><strong>İpucu:</strong> Aynı oda adını kullanan herkes birbirinizi duyabilir</p>
+                            <p><strong>Sunucu:</strong> deeptalk.qzz.io üzerinden bağlanıyorsunuz</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Ana Konuşma Ekranı -->
+            <div id="voice-screen" class="screen">
+                <div class="voice-layout">
+                    <!-- Sol Panel - Katılımcılar -->
+                    <div class="left-panel">
+                        <div class="panel-header">
+                            <h3>Katılımcılar</h3>
+                            <span id="participant-count" class="count-badge">0</span>
+                        </div>
+                        <div id="participants-list" class="participants-list"></div>
+                    </div>
+
+                    <!-- Sağ Panel - Kontroller -->
+                    <div class="right-panel">
+                        <div class="room-header">
+                            <div class="room-info">
+                                <h2 id="current-room">Oda: </h2>
+                                <p id="current-user">Kullanıcı: </p>
+                            </div>
+                            <button id="leave-btn" class="leave-btn">
+                                <span>🚪</span>
+                                Ayrıl
+                            </button>
+                        </div>
+
+                        <div class="voice-controls">
+                            <div class="main-controls">
+                                <button id="mute-btn" class="control-btn mic-btn">
+                                    <div class="btn-content">
+                                        <span class="icon">🎤</span>
+                                        <span class="text">Mikrofon Açık</span>
+                                    </div>
+                                </button>
+                                
+                                <button id="speaker-btn" class="control-btn speaker-btn">
+                                    <div class="btn-content">
+                                        <span class="icon">🔊</span>
+                                        <span class="text">Hoparlör Açık</span>
+                                    </div>
+                                </button>
+                            </div>
+
+                            <div class="audio-levels">
+                                <div class="level-group">
+                                    <label>Mikrofon Seviyesi</label>
+                                    <div class="level-bar">
+                                        <div id="mic-level" class="level-fill"></div>
+                                    </div>
+                                </div>
+                                
+                                <div class="level-group">
+                                    <label>Hoparlör Seviyesi</label>
+                                    <div class="level-bar">
+                                        <div id="speaker-level" class="level-fill"></div>
+                                    </div>
+                                    <input type="range" id="volume-slider" min="0" max="100" value="80" class="volume-slider">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="status-panel">
+                            <div id="status" class="status-message">Bağlanıyor...</div>
+                            <div id="network-info" class="network-info"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Ses Ayarları Modal -->
+        <div id="audio-settings-modal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Ses Ayarları</h3>
+                    <button class="close-btn" id="close-audio-settings">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="setting-group">
+                        <label for="mic-select">Mikrofon Seçimi</label>
+                        <select id="mic-select" class="device-select"></select>
+                    </div>
+                    
+                    <div class="setting-group">
+                        <label for="speaker-select">Hoparlör Seçimi</label>
+                        <select id="speaker-select" class="device-select"></select>
+                    </div>
+                    
+                    <div class="setting-group">
+                        <label>
+                            <input type="checkbox" id="noise-suppression"> 
+                            Gürültü Bastırma
+                        </label>
+                    </div>
+                    
+                    <div class="setting-group">
+                        <label>
+                            <input type="checkbox" id="echo-cancellation" checked> 
+                            Yankı İptali
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button id="save-audio-settings" class="primary-btn">Kaydet</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

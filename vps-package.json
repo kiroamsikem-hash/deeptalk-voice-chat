@@ -1,0 +1,25 @@
+{
+  "name": "deeptalk-server",
+  "version": "1.0.0",
+  "description": "DeepTalk Sesli Konuşma Sunucusu",
+  "main": "vps-server.js",
+  "scripts": {
+    "start": "node vps-server.js",
+    "dev": "nodemon vps-server.js",
+    "pm2": "pm2 start vps-server.js --name deeptalk-server",
+    "pm2-stop": "pm2 stop deeptalk-server",
+    "pm2-restart": "pm2 restart deeptalk-server",
+    "pm2-logs": "pm2 logs deeptalk-server"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.7.2",
+    "cors": "^2.8.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "keywords": ["voice", "chat", "webrtc", "socket.io", "deeptalk"],
+  "author": "DeepTalk",
+  "license": "MIT"
+}
