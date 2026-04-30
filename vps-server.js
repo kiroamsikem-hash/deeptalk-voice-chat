@@ -350,9 +350,9 @@ io.on('connection', (socket) => {
     // Chat mesajı
     socket.on('chat-message', (data) => {
         try {
-            const { roomCode, userName, message } = data;
+            const { roomCode, userName, message, type } = data;
             
-            console.log('💬 CHAT MESAJI ALINDI:', { roomCode, userName, message, socketId: socket.id });
+            console.log('💬 CHAT MESAJI ALINDI:', { roomCode, userName, type: type || 'text', messageLength: message?.length });
             
             if (!roomCode || !userName || !message) {
                 console.log('❌ Eksik chat verisi:', data);
@@ -365,16 +365,22 @@ io.on('connection', (socket) => {
             
             // Oda kodunu büyük harfe çevir
             const upperRoomCode = roomCode.toUpperCase();
-            console.log(`📤 Mesaj gönderiliyor: [${upperRoomCode}] ${userName}: ${message}`);
+            
+            if (type === 'image') {
+                console.log(`📤 Fotoğraf gönderiliyor: [${upperRoomCode}] ${userName}`);
+            } else {
+                console.log(`📤 Mesaj gönderiliyor: [${upperRoomCode}] ${userName}: ${message}`);
+            }
             
             // Odadaki diğer kullanıcılara mesajı ilet (gönderen hariç)
-            const result = io.to(upperRoomCode).emit('chat-message', {
+            io.to(upperRoomCode).emit('chat-message', {
                 userName: userName,
                 message: message,
+                type: type || 'text',
                 timestamp: new Date().toISOString()
             });
             
-            console.log(`✅ Mesaj ${upperRoomCode} odasına broadcast edildi`);
+            console.log(`✅ ${type === 'image' ? 'Fotoğraf' : 'Mesaj'} ${upperRoomCode} odasına broadcast edildi`);
             
         } catch (error) {
             console.error('❌ Chat mesaj hatası:', error);

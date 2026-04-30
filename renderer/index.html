@@ -69,6 +69,8 @@
                 <h3>Sohbet</h3>
                 <div id="messages"></div>
                 <div class="chat-input">
+                    <input type="file" id="image-input" accept="image/*" style="display:none" onchange="sendImage()" />
+                    <button onclick="document.getElementById('image-input').click()" title="Fotoğraf Gönder" style="width:auto; padding:14px 16px; margin:0; margin-right:8px;">📷</button>
                     <input type="text" id="message-input" placeholder="Mesaj yaz..." onkeypress="if(event.key==='Enter') sendMessage()" />
                     <button onclick="sendMessage()">Gönder</button>
                 </div>

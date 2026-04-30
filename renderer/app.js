@@ -195,7 +195,11 @@ function initSocket() {
     // Chat mesajları
     socket.on('chat-message', (data) => {
         console.log('💬 Chat mesajı alındı:', data);
-        addMessage(data.userName, data.message, false);
+        if (data.type === 'image') {
+            addImageMessage(data.userName, data.message, false);
+        } else {
+            addMessage(data.userName, data.message, false);
+        }
     });
 }
 
@@ -264,7 +268,19 @@ function create() {
 function copyCode() {
     const code = document.getElementById('invite-code').textContent;
     navigator.clipboard.writeText(code).then(() => {
-        alert('Davet kodu kopyalandı: ' + code);
+        // Başarı bildirimi göster
+        const btn = event.target;
+        const originalText = btn.textContent;
+        btn.textContent = '✓ Kopyalandı!';
+        btn.style.background = 'linear-gradient(135deg, oklch(0.6 0.25 130) 0%, oklch(0.7 0.25 150) 100%)';
+        
+        setTimeout(() => {
+            btn.textContent = originalText;
+            btn.style.background = '';
+        }, 2000);
+    }).catch(err => {
+        console.error('Kopyalama hatası:', err);
+        alert('Kod: ' + code);
     });
 }
 
@@ -882,17 +898,61 @@ function sendMessage() {
     });
     
     // Kendi mesajımızı göster
-    addMessage('Sen', message, true);
+    addMessage(currentUser, message, true);
     
     // Sunucuya gönder
     socket.emit('chat-message', {
         roomCode: currentCode,
         userName: currentUser,
-        message: message
+        message: message,
+        type: 'text'
     });
     
     input.value = '';
     console.log('✅ Mesaj gönderildi');
+}
+
+// Fotoğraf gönder
+async function sendImage() {
+    const input = document.getElementById('image-input');
+    const file = input.files[0];
+    
+    if (!file) return;
+    
+    if (!currentCode || !currentUser) {
+        alert('Önce bir odaya katılın');
+        return;
+    }
+    
+    // Dosya boyutu kontrolü (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+        alert('Fotoğraf çok büyük! Maksimum 5MB olmalı.');
+        return;
+    }
+    
+    console.log('📷 Fotoğraf gönderiliyor:', file.name);
+    
+    // Fotoğrafı base64'e çevir
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const imageData = e.target.result;
+        
+        // Kendi mesajımızı göster
+        addImageMessage(currentUser, imageData, true);
+        
+        // Sunucuya gönder
+        socket.emit('chat-message', {
+            roomCode: currentCode,
+            userName: currentUser,
+            message: imageData,
+            type: 'image'
+        });
+        
+        console.log('✅ Fotoğraf gönderildi');
+    };
+    
+    reader.readAsDataURL(file);
+    input.value = ''; // Input'u temizle
 }
 
 // Mesaj ekle
@@ -903,7 +963,7 @@ function addMessage(sender, text, isOwn) {
     
     const senderSpan = document.createElement('div');
     senderSpan.className = 'sender';
-    senderSpan.textContent = sender;
+    senderSpan.textContent = isOwn ? 'Sen' : sender;
     
     const textSpan = document.createElement('div');
     textSpan.className = 'text';
@@ -911,6 +971,55 @@ function addMessage(sender, text, isOwn) {
     
     messageDiv.appendChild(senderSpan);
     messageDiv.appendChild(textSpan);
+    messagesDiv.appendChild(messageDiv);
+    
+    // Otomatik scroll
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+}
+
+// Fotoğraf mesajı ekle
+function addImageMessage(sender, imageData, isOwn) {
+    const messagesDiv = document.getElementById('messages');
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `message ${isOwn ? 'own' : 'other'}`;
+    
+    const senderSpan = document.createElement('div');
+    senderSpan.className = 'sender';
+    senderSpan.textContent = isOwn ? 'Sen' : sender;
+    
+    const img = document.createElement('img');
+    img.src = imageData;
+    img.style.maxWidth = '100%';
+    img.style.borderRadius = '8px';
+    img.style.marginTop = '5px';
+    img.style.cursor = 'pointer';
+    img.onclick = () => {
+        // Fotoğrafı büyüt
+        const modal = document.createElement('div');
+        modal.style.position = 'fixed';
+        modal.style.top = '0';
+        modal.style.left = '0';
+        modal.style.width = '100%';
+        modal.style.height = '100%';
+        modal.style.background = 'rgba(0,0,0,0.9)';
+        modal.style.display = 'flex';
+        modal.style.alignItems = 'center';
+        modal.style.justifyContent = 'center';
+        modal.style.zIndex = '10000';
+        modal.onclick = () => modal.remove();
+        
+        const bigImg = document.createElement('img');
+        bigImg.src = imageData;
+        bigImg.style.maxWidth = '90%';
+        bigImg.style.maxHeight = '90%';
+        bigImg.style.borderRadius = '10px';
+        
+        modal.appendChild(bigImg);
+        document.body.appendChild(modal);
+    };
+    
+    messageDiv.appendChild(senderSpan);
+    messageDiv.appendChild(img);
     messagesDiv.appendChild(messageDiv);
     
     // Otomatik scroll
