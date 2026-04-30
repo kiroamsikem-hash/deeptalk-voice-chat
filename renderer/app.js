@@ -306,11 +306,11 @@ function toggleMic() {
         const btn = document.getElementById('mic');
         if (isMicMuted) {
             btn.classList.add('muted');
-            btn.textContent = '○';
+            btn.textContent = 'MIC OFF';
             btn.title = 'Mikrofon Kapalı';
         } else {
             btn.classList.remove('muted');
-            btn.textContent = '●';
+            btn.textContent = 'MIC';
             btn.title = 'Mikrofon Açık';
         }
     }
@@ -327,11 +327,11 @@ function toggleSpeaker() {
     const btn = document.getElementById('speaker');
     if (isSpeakerMuted) {
         btn.classList.add('muted');
-        btn.textContent = '♫';
+        btn.textContent = 'SPK OFF';
         btn.title = 'Hoparlör Kapalı';
     } else {
         btn.classList.remove('muted');
-        btn.textContent = '♪';
+        btn.textContent = 'SPK';
         btn.title = 'Hoparlör Açık';
     }
 }
@@ -511,7 +511,7 @@ async function toggleScreen() {
             isScreenSharing = true;
             const btn = document.getElementById('screen');
             btn.classList.add('active');
-            btn.textContent = '■';
+            btn.textContent = 'STOP';
             btn.title = 'Ekran Paylaşımını Durdur';
             
             if (isCameraOn) {
@@ -696,7 +696,7 @@ function stopScreenStream() {
     isScreenSharing = false;
     const btn = document.getElementById('screen');
     btn.classList.remove('active');
-    btn.textContent = '▭';
+    btn.textContent = 'SCR';
     btn.title = 'Ekran Paylaş';
 }
 
@@ -871,12 +871,27 @@ function sendMessage() {
     const input = document.getElementById('message-input');
     const message = input.value.trim();
     
-    if (!message || !currentCode) {
-        console.log('Mesaj gönderilemedi:', { message, currentCode, currentUser });
+    if (!message) {
+        console.log('❌ Mesaj boş');
         return;
     }
     
-    console.log('Mesaj gönderiliyor:', { roomCode: currentCode, userName: currentUser, message });
+    if (!currentCode) {
+        console.log('❌ Oda kodu yok:', currentCode);
+        alert('Önce bir odaya katılın');
+        return;
+    }
+    
+    if (!currentUser) {
+        console.log('❌ Kullanıcı adı yok:', currentUser);
+        return;
+    }
+    
+    console.log('📤 Mesaj gönderiliyor:', { 
+        roomCode: currentCode, 
+        userName: currentUser, 
+        message: message 
+    });
     
     // Kendi mesajımızı göster
     addMessage('Sen', message, true);
@@ -889,6 +904,7 @@ function sendMessage() {
     });
     
     input.value = '';
+    console.log('✅ Mesaj gönderildi');
 }
 
 // Mesaj ekle

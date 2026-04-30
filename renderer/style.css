@@ -229,13 +229,14 @@ button:active {
 
 .controls button {
     padding: 18px 5px;
-    font-size: 28px;
+    font-size: 11px;
     margin: 0;
     background: oklch(0.2 0.03 280);
     border: 1px solid oklch(0.3 0.05 280 / 0.4);
     box-shadow: 0 2px 10px rgba(0,0,0,0.3);
-    font-weight: 400;
+    font-weight: 700;
     line-height: 1;
+    letter-spacing: 0.5px;
 }
 
 .controls button:hover {

@@ -9,7 +9,7 @@
     <div class="app">
         <!-- Giriş -->
         <div id="login" class="screen active">
-            <h1>⚡ DeepTalk</h1>
+            <h1>DeepTalk</h1>
             
             <div class="tabs">
                 <button class="tab active" onclick="switchTab('join')">Katıl</button>
@@ -20,23 +20,23 @@
             <div id="join-tab" class="tab-content active">
                 <input type="text" id="name-join" placeholder="Adınız" />
                 <input type="text" id="code" placeholder="Davet Kodu (6 hane)" maxlength="6" />
-                <button onclick="join()">→ Katıl</button>
+                <button onclick="join()">Katıl</button>
             </div>
             
             <!-- Oluştur -->
             <div id="create-tab" class="tab-content">
                 <input type="text" id="name-create" placeholder="Adınız" />
                 <input type="text" id="roomname" placeholder="Oda Adı" />
-                <button onclick="create()">+ Oda Oluştur</button>
+                <button onclick="create()">Oda Oluştur</button>
             </div>
         </div>
         
         <!-- Davet Kodu Göster -->
         <div id="invite" class="screen">
-            <h1>✓ Oda Oluşturuldu!</h1>
+            <h1>Oda Oluşturuldu</h1>
             <div class="code-display" id="invite-code">------</div>
-            <button onclick="copyCode()">⎘ Kopyala</button>
-            <button onclick="enterRoom()">→ Odaya Gir</button>
+            <button onclick="copyCode()">Kopyala</button>
+            <button onclick="enterRoom()">Odaya Gir</button>
         </div>
         
         <!-- Sohbet -->
@@ -46,31 +46,31 @@
                     <h2 id="room-name">Oda</h2>
                     <small>Kod: <span id="room-code">---</span></small>
                 </div>
-                <button onclick="leave()">× Ayrıl</button>
+                <button onclick="leave()">Ayrıl</button>
             </div>
             
             <div class="users">
-                <h3>◉ Katılımcılar (<span id="count">0</span>)</h3>
+                <h3>Katılımcılar (<span id="count">0</span>)</h3>
                 <div id="userlist"></div>
             </div>
             
             <div class="controls">
-                <button id="mic" onclick="toggleMic()" title="Mikrofon">●</button>
-                <button id="speaker" onclick="toggleSpeaker()" title="Hoparlör">♪</button>
-                <button id="camera" onclick="toggleCamera()" title="Kamera">◉</button>
-                <button id="screen" onclick="toggleScreen()" title="Ekran Paylaş">▭</button>
-                <button onclick="showSettings()" title="Ayarlar">⚙</button>
+                <button id="mic" onclick="toggleMic()" title="Mikrofon">MIC</button>
+                <button id="speaker" onclick="toggleSpeaker()" title="Hoparlör">SPK</button>
+                <button id="camera" onclick="toggleCamera()" title="Kamera">CAM</button>
+                <button id="screen" onclick="toggleScreen()" title="Ekran Paylaş">SCR</button>
+                <button onclick="showSettings()" title="Ayarlar">SET</button>
             </div>
             
             <video id="local-video" autoplay muted style="display:none; width:100%; border-radius:10px;"></video>
             
             <!-- Chat Bölümü -->
             <div class="chat-section">
-                <h3>⚡ Sohbet</h3>
+                <h3>Sohbet</h3>
                 <div id="messages"></div>
                 <div class="chat-input">
                     <input type="text" id="message-input" placeholder="Mesaj yaz..." onkeypress="if(event.key==='Enter') sendMessage()" />
-                    <button onclick="sendMessage()">→</button>
+                    <button onclick="sendMessage()">Gönder</button>
                 </div>
             </div>
             
@@ -80,27 +80,27 @@
         <!-- Ayarlar Modal -->
         <div id="settings-modal" class="modal">
             <div class="modal-content">
-                <h3>⚙ Cihaz Ayarları</h3>
-                <label>● Mikrofon</label>
+                <h3>Cihaz Ayarları</h3>
+                <label>Mikrofon</label>
                 <select id="mic-select"></select>
-                <label>♪ Hoparlör</label>
+                <label>Hoparlör</label>
                 <select id="speaker-select"></select>
-                <label>◉ Kamera</label>
+                <label>Kamera</label>
                 <select id="camera-select"></select>
-                <label>▭ Video Kalitesi</label>
+                <label>Video Kalitesi</label>
                 <select id="quality">
                     <option value="480">480p</option>
                     <option value="720" selected>720p</option>
                     <option value="1080">1080p</option>
                 </select>
-                <label>⚡ Ekran FPS</label>
+                <label>Ekran FPS</label>
                 <select id="fps">
                     <option value="15">15 FPS</option>
                     <option value="30" selected>30 FPS</option>
                     <option value="60">60 FPS</option>
                 </select>
-                <button onclick="saveSettings()">✓ Kaydet</button>
-                <button onclick="closeSettings()">× Kapat</button>
+                <button onclick="saveSettings()">Kaydet</button>
+                <button onclick="closeSettings()">Kapat</button>
             </div>
         </div>
     </div>
