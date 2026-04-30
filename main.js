@@ -18,7 +18,11 @@ function createWindow() {
       contextIsolation: true,
       enableRemoteModule: false,
       preload: path.join(__dirname, 'renderer', 'preload.js'),
-      webSecurity: true
+      webSecurity: true,
+      // Ekran paylaşımı için gerekli
+      enableWebRTC: true,
+      allowDisplayingInsecureContent: true,
+      allowRunningInsecureContent: false
     },
     icon: path.join(__dirname, 'assets', 'icon.png'),
     show: false,
@@ -28,12 +32,20 @@ function createWindow() {
 
   // Ekran paylaşımı için izin ver
   mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
-    const allowedPermissions = ['media', 'mediaKeySystem', 'geolocation', 'notifications', 'midi', 'midiSysex', 'pointerLock', 'fullscreen'];
+    const allowedPermissions = ['media', 'mediaKeySystem', 'geolocation', 'notifications', 'midi', 'midiSysex', 'pointerLock', 'fullscreen', 'display-capture'];
     if (allowedPermissions.includes(permission)) {
       callback(true);
     } else {
       callback(false);
     }
+  });
+  
+  // Display capture için özel izin
+  mainWindow.webContents.session.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
+    if (permission === 'media' || permission === 'display-capture') {
+      return true;
+    }
+    return false;
   });
 
   // HTML dosyasını yükle
