@@ -413,13 +413,15 @@ async function toggleScreen() {
                     console.log('Bulunan kaynaklar:', sources.length);
                     
                     if (sources.length === 0) {
-                        alert('Paylaşılacak ekran bulunamadı');
-                        return;
+                        console.log('❌ Kaynak bulunamadı, fallback kullanılıyor');
+                        throw new Error('No sources found');
                     }
                     
-                    // İlk ekranı seç
-                    const selectedSource = sources[0];
-                    console.log('Seçilen kaynak:', selectedSource.name);
+                    // Ekranları filtrele (window'lar yerine screen'leri tercih et)
+                    const screens = sources.filter(s => s.id.startsWith('screen'));
+                    const selectedSource = screens.length > 0 ? screens[0] : sources[0];
+                    
+                    console.log('Seçilen kaynak:', selectedSource.name, selectedSource.id);
                     
                     const constraints = {
                         audio: false,
@@ -438,10 +440,24 @@ async function toggleScreen() {
                     };
                     
                     screenStream = await navigator.mediaDevices.getUserMedia(constraints);
+                    console.log('✅ Electron API ile ekran stream oluşturuldu');
                     
                 } catch (apiError) {
                     console.error('Electron API hatası:', apiError);
-                    throw apiError;
+                    console.log('Fallback: getDisplayMedia kullanılıyor...');
+                    
+                    // Fallback: Standart API
+                    const constraints = {
+                        video: {
+                            width: { ideal: 1920, max: 1920 },
+                            height: { ideal: 1080, max: 1080 },
+                            frameRate: { ideal: settings.screenFps, max: 60 }
+                        },
+                        audio: false
+                    };
+                    
+                    screenStream = await navigator.mediaDevices.getDisplayMedia(constraints);
+                    console.log('✅ getDisplayMedia ile ekran stream oluşturuldu');
                 }
                 
             } else {
@@ -458,6 +474,7 @@ async function toggleScreen() {
                 };
                 
                 screenStream = await navigator.mediaDevices.getDisplayMedia(constraints);
+                console.log('✅ getDisplayMedia ile ekran stream oluşturuldu');
             }
             
             const screenTrack = screenStream.getVideoTracks()[0];
@@ -509,7 +526,7 @@ async function toggleScreen() {
             if (error.name === 'NotAllowedError') {
                 console.log('Kullanıcı ekran paylaşımını reddetti');
             } else {
-                alert('Ekran paylaşımı başlatılamadı: ' + error.message);
+                alert('Ekran paylaşımı başlatılamadı: ' + error.message + '\n\nLütfen uygulamayı yeniden başlatın.');
             }
         }
     } else {
@@ -591,7 +608,7 @@ async function startLocalStream() {
                 deviceId: settings.micId ? { exact: settings.micId } : undefined,
                 echoCancellation: true,
                 noiseSuppression: true,
-                autoGainControl: true,
+                autoGainControl: false,  // Manuel kontrol için kapalı
                 sampleRate: 48000,
                 channelCount: 1
             },
@@ -606,7 +623,18 @@ async function startLocalStream() {
         peers.forEach((peer, userId) => {
             localStream.getTracks().forEach(track => {
                 console.log(`Adding ${track.kind} track to peer ${userId}`);
-                peer.addTrack(track, localStream);
+                const sender = peer.addTrack(track, localStream);
+                
+                // Track parametrelerini ayarla (daha iyi kalite)
+                if (track.kind === 'audio' && sender.track) {
+                    const parameters = sender.getParameters();
+                    if (!parameters.encodings) {
+                        parameters.encodings = [{}];
+                    }
+                    parameters.encodings[0].maxBitrate = 128000; // 128 kbps (yüksek kalite)
+                    parameters.encodings[0].priority = 'high';
+                    sender.setParameters(parameters).catch(e => console.log('Parameter set error:', e));
+                }
             });
         });
         
