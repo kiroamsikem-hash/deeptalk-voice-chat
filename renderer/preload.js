@@ -1,5 +1,8 @@
 const { contextBridge, ipcRenderer, desktopCapturer } = require('electron');
 
+console.log('🔧 Preload.js başlatılıyor...');
+console.log('desktopCapturer:', typeof desktopCapturer);
+
 // Güvenli API'leri renderer sürecine açığa çıkar
 contextBridge.exposeInMainWorld('electronAPI', {
   // Uygulama bilgileri
@@ -17,13 +20,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Ekran paylaşımı için
   getDesktopSources: async () => {
     try {
+      console.log('📺 desktopCapturer.getSources çağrılıyor...');
+      if (!desktopCapturer || !desktopCapturer.getSources) {
+        console.error('❌ desktopCapturer.getSources bulunamadı!');
+        return [];
+      }
       const sources = await desktopCapturer.getSources({ 
         types: ['window', 'screen'],
         thumbnailSize: { width: 150, height: 150 }
       });
+      console.log(`✅ ${sources.length} kaynak bulundu`);
       return sources;
     } catch (error) {
-      console.error('desktopCapturer error:', error);
+      console.error('❌ desktopCapturer hatası:', error);
       return [];
     }
   },
@@ -33,3 +42,4 @@ contextBridge.exposeInMainWorld('electronAPI', {
 });
 
 console.log('✅ Preload.js yüklendi, electronAPI hazır');
+console.log('electronAPI.getDesktopSources:', typeof window?.electronAPI?.getDesktopSources);

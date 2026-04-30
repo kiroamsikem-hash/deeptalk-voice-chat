@@ -89,12 +89,12 @@ function initSocket() {
     // Odaya katılım başarılı
     socket.on('room-joined', (data) => {
         console.log('✅ ODAYA KATILDI:', data);
-        currentCode = data.inviteCode;
+        currentCode = data.inviteCode.toUpperCase(); // Büyük harfe çevir
         currentRoom = data.roomName;
         currentUser = currentUser || 'Kullanıcı';
         
         document.getElementById('room-name').textContent = data.roomName;
-        document.getElementById('room-code').textContent = data.inviteCode;
+        document.getElementById('room-code').textContent = currentCode;
         document.getElementById('messages').innerHTML = '';
         showScreen('chat');
         startLocalStream();
@@ -114,7 +114,7 @@ function initSocket() {
             socket.emit('chat-message', {
                 roomCode: currentCode,
                 userName: currentUser,
-                message: 'Test mesajı - odaya katıldım'
+                message: 'Test - odaya katıldım'
             });
         }, 1000);
     });

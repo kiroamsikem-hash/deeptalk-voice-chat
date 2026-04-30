@@ -352,6 +352,8 @@ io.on('connection', (socket) => {
         try {
             const { roomCode, userName, message } = data;
             
+            console.log('💬 CHAT MESAJI ALINDI:', { roomCode, userName, message, socketId: socket.id });
+            
             if (!roomCode || !userName || !message) {
                 console.log('❌ Eksik chat verisi:', data);
                 return;
@@ -359,19 +361,23 @@ io.on('connection', (socket) => {
             
             // Socket'in hangi odalarda olduğunu kontrol et
             const rooms = Array.from(socket.rooms);
-            console.log(`💬 [${roomCode}] ${userName}: ${message} (Socket rooms: ${rooms.join(', ')})`);
+            console.log(`📍 Socket rooms: ${rooms.join(', ')}`);
+            
+            // Oda kodunu büyük harfe çevir
+            const upperRoomCode = roomCode.toUpperCase();
+            console.log(`📤 Mesaj gönderiliyor: [${upperRoomCode}] ${userName}: ${message}`);
             
             // Odadaki diğer kullanıcılara mesajı ilet (gönderen hariç)
-            const sentCount = socket.to(roomCode).emit('chat-message', {
+            const result = io.to(upperRoomCode).emit('chat-message', {
                 userName: userName,
                 message: message,
                 timestamp: new Date().toISOString()
             });
             
-            console.log(`📤 Mesaj ${roomCode} odasına gönderildi`);
+            console.log(`✅ Mesaj ${upperRoomCode} odasına broadcast edildi`);
             
         } catch (error) {
-            console.error('Chat mesaj hatası:', error);
+            console.error('❌ Chat mesaj hatası:', error);
         }
     });
 
