@@ -55,9 +55,8 @@ function createWindow() {
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
     
-    if (isDev) {
-      mainWindow.webContents.openDevTools();
-    }
+    // DevTools'u her zaman aç (debug için)
+    mainWindow.webContents.openDevTools();
   });
 
   // Pencere kapatıldığında

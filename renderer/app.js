@@ -88,10 +88,10 @@ function initSocket() {
 
     // Odaya katılım başarılı
     socket.on('room-joined', (data) => {
-        console.log('✅ Odaya katıldı:', data);
+        console.log('✅ ODAYA KATILDI:', data);
         currentCode = data.inviteCode;
         currentRoom = data.roomName;
-        currentUser = currentUser || 'Kullanıcı'; // Emin ol ki currentUser set edilmiş
+        currentUser = currentUser || 'Kullanıcı';
         
         document.getElementById('room-name').textContent = data.roomName;
         document.getElementById('room-code').textContent = data.inviteCode;
@@ -101,7 +101,22 @@ function initSocket() {
         updateStatus(`${data.userCount}/${data.maxUsers} kullanıcı`);
         addSystemMessage(`${data.roomName} odasına hoş geldiniz!`);
         
-        console.log('📍 Oda bilgileri:', { currentCode, currentRoom, currentUser });
+        console.log('📍 ODA BİLGİLERİ:', { 
+            currentCode, 
+            currentRoom, 
+            currentUser,
+            socketId: socket.id 
+        });
+        
+        // Test mesajı gönder
+        setTimeout(() => {
+            console.log('🧪 Test mesajı gönderiliyor...');
+            socket.emit('chat-message', {
+                roomCode: currentCode,
+                userName: currentUser,
+                message: 'Test mesajı - odaya katıldım'
+            });
+        }, 1000);
     });
 
     // Odaya katılım başarısız
@@ -406,58 +421,65 @@ async function toggleCamera() {
 async function toggleScreen() {
     if (!isScreenSharing) {
         try {
-            console.log('🖥️ Ekran paylaşımı başlatılıyor...');
+            console.log('🖥️ EKRAN PAYLAŞIMI BAŞLATILIYOR...');
             
-            // Electron desktopCapturer kullan (en güvenilir yöntem)
-            if (!window.electronAPI || !window.electronAPI.getDesktopSources) {
-                alert('Ekran paylaşımı sadece masaüstü uygulamasında çalışır.\n\nLütfen uygulamayı indirin ve yükleyin.');
+            // Electron API kontrolü
+            if (!window.electronAPI) {
+                console.error('❌ electronAPI bulunamadı!');
+                alert('Electron API bulunamadı. Uygulamayı yeniden başlatın.');
                 return;
             }
             
-            const sources = await window.electronAPI.getDesktopSources();
-            console.log(`📋 ${sources.length} kaynak bulundu`);
+            if (!window.electronAPI.getDesktopSources) {
+                console.error('❌ getDesktopSources fonksiyonu yok!');
+                alert('Ekran paylaşımı fonksiyonu bulunamadı. Uygulamayı yeniden başlatın.');
+                return;
+            }
+            
+            console.log('✓ Electron API hazır');
+            
+            // Kaynakları al
+            let sources;
+            try {
+                sources = await window.electronAPI.getDesktopSources();
+                console.log(`✓ ${sources.length} kaynak bulundu`);
+            } catch (err) {
+                console.error('❌ Kaynak alma hatası:', err);
+                alert('Ekran kaynakları alınamadı: ' + err.message);
+                return;
+            }
             
             if (sources.length === 0) {
-                alert('Paylaşılacak ekran bulunamadı.\n\nLütfen uygulamayı yeniden başlatın.');
+                console.error('❌ Hiç kaynak bulunamadı!');
+                alert('Paylaşılacak ekran bulunamadı.');
                 return;
             }
             
-            // Ekranları listele ve ilkini seç
-            sources.forEach((source, index) => {
-                console.log(`  ${index + 1}. ${source.name} (${source.id})`);
-            });
+            // İlk kaynağı al (en basit yöntem)
+            const source = sources[0];
+            console.log(`✓ Kaynak seçildi: ${source.name} (${source.id})`);
             
-            // Ekranları filtrele (screen'leri tercih et)
-            const screens = sources.filter(s => s.id.startsWith('screen'));
-            const windows = sources.filter(s => s.id.startsWith('window'));
-            
-            // Önce ekranları, sonra pencereleri dene
-            const selectedSource = screens.length > 0 ? screens[0] : (windows.length > 0 ? windows[0] : sources[0]);
-            
-            console.log(`✓ Seçilen: ${selectedSource.name} (${selectedSource.id})`);
-            
+            // Stream oluştur
             const constraints = {
                 audio: false,
                 video: {
                     mandatory: {
                         chromeMediaSource: 'desktop',
-                        chromeMediaSourceId: selectedSource.id,
+                        chromeMediaSourceId: source.id,
                         minWidth: 1280,
                         maxWidth: 1920,
                         minHeight: 720,
-                        maxHeight: 1080,
-                        minFrameRate: 15,
-                        maxFrameRate: settings.screenFps
+                        maxHeight: 1080
                     }
                 }
             };
             
+            console.log('✓ Stream oluşturuluyor...');
             screenStream = await navigator.mediaDevices.getUserMedia(constraints);
-            console.log('✅ Ekran stream oluşturuldu');
+            console.log('✅ EKRAN STREAM OLUŞTURULDU!');
             
             const screenTrack = screenStream.getVideoTracks()[0];
-            const trackSettings = screenTrack.getSettings();
-            console.log(`📺 Çözünürlük: ${trackSettings.width}x${trackSettings.height} @ ${trackSettings.frameRate}fps`);
+            console.log('✓ Track:', screenTrack.label);
             
             // Ekran paylaşımı durdurulduğunda
             screenTrack.onended = () => {
@@ -465,75 +487,41 @@ async function toggleScreen() {
                 stopScreenStream();
             };
             
-            // Tüm peer'lara ekran track'i gönder
-            let tracksSent = 0;
+            // Peer'lara gönder
+            console.log(`✓ ${peers.size} peer'a gönderiliyor...`);
+            let sent = 0;
             peers.forEach((peer, userId) => {
-                const senders = peer.getSenders();
-                const videoSender = senders.find(s => s.track?.kind === 'video');
-                
-                if (videoSender) {
-                    // Mevcut video track'i değiştir
-                    videoSender.replaceTrack(screenTrack)
-                        .then(() => {
-                            tracksSent++;
-                            console.log(`  ✓ ${userId} (replace)`);
-                        })
-                        .catch(e => {
-                            console.error(`  ✗ ${userId} replace hatası:`, e);
-                            // Hata olursa yeni track ekle
-                            try {
-                                peer.addTrack(screenTrack, screenStream);
-                                tracksSent++;
-                                console.log(`  ✓ ${userId} (add)`);
-                            } catch (addError) {
-                                console.error(`  ✗ ${userId} add hatası:`, addError);
-                            }
-                        });
-                } else {
-                    // Video track yoksa ekle
-                    try {
-                        peer.addTrack(screenTrack, screenStream);
-                        tracksSent++;
-                        console.log(`  ✓ ${userId} (new)`);
-                    } catch (addError) {
-                        console.error(`  ✗ ${userId} add hatası:`, addError);
-                    }
+                try {
+                    peer.addTrack(screenTrack, screenStream);
+                    sent++;
+                    console.log(`  ✓ ${userId}`);
+                } catch (e) {
+                    console.error(`  ✗ ${userId}:`, e.message);
                 }
             });
+            console.log(`✅ ${sent}/${peers.size} peer'a gönderildi`);
             
-            console.log(`✅ Toplam ${tracksSent}/${peers.size} peer'a gönderildi`);
-            
-            // Ekran önizleme göster
+            // Önizleme
             const localVideo = document.getElementById('local-video');
             localVideo.srcObject = screenStream;
             localVideo.style.display = 'block';
             
+            // Buton güncelle
             isScreenSharing = true;
             const btn = document.getElementById('screen');
             btn.classList.add('active');
             btn.textContent = 'STOP';
-            btn.title = 'Ekran Paylaşımını Durdur';
-            
-            if (isCameraOn) {
-                document.getElementById('camera').classList.remove('active');
-            }
             
             updateStatus('Ekran paylaşılıyor');
+            console.log('✅ EKRAN PAYLAŞIMI BAŞLATILDI!');
             
         } catch (error) {
-            console.error('❌ Ekran paylaşımı hatası:', error);
-            
-            if (error.name === 'NotAllowedError') {
-                alert('Ekran paylaşımı izni reddedildi.\n\nLütfen tekrar deneyin ve izin verin.');
-            } else if (error.name === 'NotFoundError') {
-                alert('Ekran bulunamadı.\n\nLütfen uygulamayı yeniden başlatın.');
-            } else if (error.name === 'NotReadableError') {
-                alert('Ekrana erişilemiyor.\n\nBaşka bir uygulama ekranı kullanıyor olabilir.');
-            } else {
-                alert('Ekran paylaşımı başlatılamadı:\n' + error.message + '\n\nLütfen uygulamayı yeniden başlatın.');
-            }
+            console.error('❌ EKRAN PAYLAŞIMI HATASI:', error);
+            console.error('Hata detayı:', error.name, error.message, error.stack);
+            alert('Ekran paylaşımı başlatılamadı:\n' + error.message);
         }
     } else {
+        console.log('🛑 Ekran paylaşımı durduruluyor...');
         stopScreenStream();
     }
 }
